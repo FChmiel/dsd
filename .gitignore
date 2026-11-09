@@ -6,3 +6,9 @@ build/
 *.egg-info/
 .pytest_cache/
 .DS_Store
+
+# dsd:start
+.dsd/runs/
+.dsd/index.db
+.dsd/index.db-*
+# dsd:end

@@ -63,6 +63,22 @@ def claude_block(project: Project, active: str = "_none_") -> str:
     return template("claude_block.md").format(name=project.name, active=active)
 
 
+def refresh_claude_md(project: Project, active_tasks: list[tuple[str, str]]) -> bool:
+    """Rewrite the managed CLAUDE.md block with current active tasks. Only touches an existing block."""
+    path = project.root / "CLAUDE.md"
+    if not path.exists():
+        return False
+    text = path.read_text()
+    if CLAUDE_START not in text or CLAUDE_END not in text:
+        return False
+    active = ", ".join(f"`{tid}` {title}" for tid, title in active_tasks) or "_none_"
+    new = upsert_block(text, CLAUDE_START, CLAUDE_END, claude_block(project, active))
+    if new != text:
+        path.write_text(new)
+        return True
+    return False
+
+
 def init_project(root: Path, name: str | None = None) -> InitReport:
     root = root.resolve()
     root.mkdir(parents=True, exist_ok=True)
