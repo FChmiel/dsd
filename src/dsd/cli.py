@@ -40,7 +40,10 @@ def init(
     name: str = typer.Option(None, "--name", "-n", help="Project name (default: directory name)."),
 ) -> None:
     """Set up a dsd project here. Safe to re-run: it only adds what's missing."""
+    from . import registry
+
     report = init_project(path, name=name)
+    registry.register(report.project.root)
     for action, rel in report.actions:
         if action != "unchanged":
             console.print(f"  [{_STYLE[action]}]{action:9}[/] {rel}")
@@ -49,6 +52,34 @@ def init(
         console.print(f"[bold]dsd project '{p.name}'[/] ready at {p.root}  (id {p.id})")
     else:
         console.print(f"dsd project '{p.name}' already up to date.")
+
+
+@app.command()
+def ui(
+    port: int = typer.Option(8765, "--port"),
+    no_open: bool = typer.Option(False, "--no-open", help="Don't open a browser."),
+    project_path: Path = typer.Argument(None, help="Project to open (default: current project, if any)."),
+) -> None:
+    """Start the dsd app (local server + UI) and open it in the browser."""
+    import threading
+    import webbrowser
+
+    import uvicorn
+
+    from .project import load_project
+    from .web.server import create_app
+
+    initial = []
+    try:
+        proj = load_project(project_path.resolve()) if project_path else find_project()
+        initial.append(proj.root)
+    except ProjectNotFound:
+        proj = None
+    url = f"http://127.0.0.1:{port}/" + (f"p/{proj.id}" if proj else "")
+    console.print(f"[bold]dsd[/] app on [cyan]{url}[/]  (Ctrl-C to stop)")
+    if not no_open:
+        threading.Timer(1.0, lambda: webbrowser.open(url)).start()
+    uvicorn.run(create_app(initial), host="127.0.0.1", port=port, log_level="warning")
 
 
 @app.command()

@@ -222,5 +222,25 @@ def artifact_get(run_id: str, path: str, max_chars: int = 20000) -> dict:
     return out
 
 
+@tool
+def review_comments(status: str = "open") -> list[dict]:
+    """Review comments the user left on diffs in the dsd app (status: open, sent, resolved, or all)."""
+    from . import review
+
+    cs = review.load_comments(_project())
+    return cs if status == "all" else [c for c in cs if c["status"] == status]
+
+
+@tool
+def review_resolve(comment_ids: list[str]) -> str:
+    """Mark review comments as resolved after addressing them."""
+    from . import review
+
+    p = _project()
+    for cid in comment_ids:
+        review.update_comment(p, cid, status="resolved")
+    return f"resolved {len(comment_ids)} comment(s)"
+
+
 def main() -> None:
     server.run("stdio")
