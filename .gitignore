@@ -12,7 +12,13 @@ build/
 .dsd/index.db
 .dsd/index.db-*
 .dsd/review.json
+.dsd/worktrees.json
 # dsd:end
 
 .demo/
 ui/node_modules/
+
+/build/
+/app/node_modules/
+/app/src-tauri/target/
+/app/src-tauri/gen/

@@ -10,8 +10,13 @@ An agentic development platform for data scientists: project **plans and docs**,
 
 ## Install
 
+**Mac app (Apple Silicon):** `brew install --cask OWNER/dsd/dsd`, or download the DMG from Releases. See [docs/distribution.md](docs/distribution.md) for how releases are built and published.
+
+**From source:**
+
 ```sh
 uv tool install -e .     # puts `dsd` on PATH (needed by the MCP server Claude Code launches)
+packaging/build-macos.sh # optional: build dsd.app + DMG locally (needs Rust, Node, uv)
 ```
 
 ## Quick start

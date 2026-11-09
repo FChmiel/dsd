@@ -72,6 +72,21 @@ def create_app(initial: list[Path] | None = None) -> FastAPI:
     def health():
         return {"ok": True, "version": __version__}
 
+    @app.get("/api/cli")
+    async def cli_status():
+        from ..appsupport import cli_status as status
+
+        return await asyncio.to_thread(status)
+
+    @app.post("/api/cli/install")
+    def cli_install():
+        from ..appsupport import install_cli
+
+        try:
+            return install_cli()
+        except (RuntimeError, OSError) as e:
+            raise HTTPException(400, str(e))
+
     @app.get("/api/projects")
     def projects_list():
         return [project_json(p) for p in registry.projects()]

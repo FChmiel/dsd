@@ -103,6 +103,11 @@ class TerminalManager:
         full_env = {**os.environ, **(env or {}), "TERM": "xterm-256color", "COLORTERM": "truecolor",
                     "DSD_PROJECT_ROOT": cwd}
         full_env.pop("DSD_RUN_DIR", None)
+        from ..appsupport import ensure_app_shim
+
+        shim_dir = ensure_app_shim()  # packaged app: make `dsd` (and so `dsd mcp`) resolvable in the session
+        if shim_dir:
+            full_env["PATH"] = f"{shim_dir}:{full_env.get('PATH', '/usr/bin:/bin')}"
         if worktree:  # informational; dsd finds the worktree project via DSD_PROJECT_ROOT=cwd
             full_env["DSD_WORKTREE"] = worktree
         proc = subprocess.Popen(

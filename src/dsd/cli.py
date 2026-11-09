@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import typer
@@ -79,6 +80,17 @@ def ui(
     console.print(f"[bold]dsd[/] app on [cyan]{url}[/]  (Ctrl-C to stop)")
     if not no_open:
         threading.Timer(1.0, lambda: webbrowser.open(url)).start()
+    parent = os.environ.get("DSD_PARENT_PID")
+    if parent:  # launched by the desktop app: exit with it, even if it is force-quit or crashes
+        import signal
+        import time
+
+        def watch_parent(pid: int) -> None:
+            while os.getppid() == pid:
+                time.sleep(1.0)
+            os.kill(os.getpid(), signal.SIGTERM)  # graceful: uvicorn shutdown closes PTY sessions
+
+        threading.Thread(target=watch_parent, args=(int(parent),), daemon=True).start()
     uvicorn.run(create_app(initial), host="127.0.0.1", port=port, log_level="warning")
 
 

@@ -1,0 +1,95 @@
+# Build the Apple Silicon DMG on a version tag, publish a GitHub Release, and bump the Homebrew cask.
+#
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+# Secrets:
+#   TAP_TOKEN  (optional) fine-grained PAT with contents:write on OWNER/homebrew-dsd, to update the cask
+#   Signing/notarization (optional, add later): APPLE_CERTIFICATE (base64 .p12), APPLE_CERTIFICATE_PASSWORD,
+#   APPLE_SIGNING_IDENTITY, APPLE_API_KEY, APPLE_API_ISSUER, APPLE_API_KEY_P8 (contents of the .p8 key)
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    runs-on: macos-14   # Apple Silicon runner
+    env:
+      HAS_CERT: ${{ secrets.APPLE_CERTIFICATE != '' }}
+      HAS_TAP: ${{ secrets.TAP_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: astral-sh/setup-uv@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Check versions match the tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          grep -q "^version = \"$TAG\"" pyproject.toml || { echo "pyproject.toml version != $TAG"; exit 1; }
+          grep -q "\"version\": \"$TAG\"" app/src-tauri/tauri.conf.json || { echo "tauri.conf.json version != $TAG"; exit 1; }
+
+      - name: Import signing certificate
+        if: env.HAS_CERT == 'true'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          echo "$APPLE_CERTIFICATE" | base64 --decode > cert.p12
+          security create-keychain -p ci build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p ci build.keychain
+          security import cert.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k ci build.keychain
+          rm cert.p12
+
+      - name: Build app + DMG
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          if [ -n "$APPLE_API_KEY_P8" ]; then
+            mkdir -p ~/private_keys && echo "$APPLE_API_KEY_P8" > ~/private_keys/AuthKey_$APPLE_API_KEY.p8
+            export APPLE_API_KEY_PATH=~/private_keys/AuthKey_$APPLE_API_KEY.p8
+          fi
+          packaging/build-macos.sh
+
+      - name: Publish release
+        id: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          DMG=$(ls app/src-tauri/target/release/bundle/dmg/*.dmg)
+          SHA=$(shasum -a 256 "$DMG" | cut -d' ' -f1)
+          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
+          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          gh release create "$GITHUB_REF_NAME" "$DMG" --generate-notes --title "dsd $GITHUB_REF_NAME" \
+            --notes "Install: \`brew install --cask ${GITHUB_REPOSITORY_OWNER}/dsd/dsd\` (Apple Silicon). SHA-256: \`$SHA\`" \
+            || gh release upload "$GITHUB_REF_NAME" "$DMG" --clobber
+
+      - name: Bump Homebrew cask
+        if: env.HAS_TAP == 'true'
+        env:
+          TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
+          VERSION: ${{ steps.publish.outputs.version }}
+          SHA: ${{ steps.publish.outputs.sha256 }}
+        run: |
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/${GITHUB_REPOSITORY_OWNER}/homebrew-dsd.git" tap
+          mkdir -p tap/Casks
+          sed -e "s|OWNER/REPO|${GITHUB_REPOSITORY}|g" packaging/homebrew/Casks/dsd.rb > tap/Casks/dsd.rb
+          sed -i '' -e "s|^  version \".*\"|  version \"${VERSION}\"|" -e "s|^  sha256 \".*\"|  sha256 \"${SHA}\"|" tap/Casks/dsd.rb
+          cd tap
+          git -c user.name="dsd release bot" -c user.email="actions@github.com" commit -am "dsd ${VERSION}" && git push

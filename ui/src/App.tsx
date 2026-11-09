@@ -14,6 +14,7 @@ import { Benchmarks } from "./views/Benchmarks";
 import { Changes } from "./views/Changes";
 import { Worktrees } from "./views/Worktrees";
 import { loadSessionDefault, type SessionTarget } from "./components/SessionLauncher";
+import { inApp, pickFolder } from "./native";
 
 const NAV = [
   { view: "overview", label: "Overview", icon: "home" },
@@ -218,6 +219,7 @@ function Workspace({ project, projects }: { project: Project; projects: Project[
               <button className="btn sm ghost" onClick={() => setPaneOpen((o) => !o)}>
                 {paneOpen ? "Hide" : "Show"} agent <span className="kbd">⌘J</span>
               </button>
+              <CliCard compact />
             </div>
           </div>
         </aside>
@@ -285,10 +287,10 @@ function Home({ projects, reload, missing }: { projects: Project[]; reload: () =
   const [path, setPath] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [needsInit, setNeedsInit] = useState(false);
-  const add = async (init = false) => {
+  const add = async (init = false, override?: string) => {
     setErr(null);
     try {
-      const p = await post<Project>("/api/projects", { path, init });
+      const p = await post<Project>("/api/projects", { path: override ?? path, init });
       reload();
       navigate(href(p.id, "overview"));
     } catch (e: any) {
@@ -315,10 +317,45 @@ function Home({ projects, reload, missing }: { projects: Project[]; reload: () =
         <div className="card-body" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <input className="input" style={{ flex: 1, minWidth: 240 }} placeholder="/path/to/repo" value={path}
             onChange={(e) => { setPath(e.target.value); setNeedsInit(false); }} onKeyDown={(e) => e.key === "Enter" && add()} />
+          {inApp && <button className="btn" onClick={async () => {
+            const dir = await pickFolder();
+            if (dir) { setPath(dir); setNeedsInit(false); add(false, dir); }
+          }}>Choose folder…</button>}
           <button className="btn primary" onClick={() => add()}>Open</button>
           {needsInit && <button className="btn" onClick={() => add(true)}>Set up dsd here</button>}
         </div>
         {err && <div className="card-body"><div className="error-box">{err}</div></div>}
+      </div>
+      <CliCard />
+    </div>
+  );
+}
+
+/** Packaged app only: offer to link the bundled `dsd` CLI onto PATH if it isn't there. */
+export function CliCard({ compact }: { compact?: boolean }) {
+  const cli = useApi<any>(inApp ? "/api/cli" : null);
+  const [msg, setMsg] = useState<string | null>(null);
+  if (!inApp || !cli.data?.frozen || cli.data.on_path) return null;
+  const install = async () => {
+    try {
+      const r = await post<any>("/api/cli/install", {});
+      setMsg(r.on_path ? `Installed: ${r.linked}` : `Linked ${r.linked}. ${r.hint}`);
+      cli.reload();
+    } catch (e: any) { setMsg(e.message); }
+  };
+  if (compact) {
+    return <button className="btn sm ghost" title="Link the bundled dsd command into ~/.local/bin so Claude Code outside the app can use it" onClick={install}>Install dsd command</button>;
+  }
+  return (
+    <div className="card">
+      <div className="card-head">Command-line tool</div>
+      <div className="card-body">
+        <p className="dim" style={{ marginTop: 0 }}>
+          Sessions inside the app already have <code>dsd</code>. To use <code>dsd exec</code>, <code>dsd wt</code> and the MCP server from
+          your own terminal or editor, link the bundled command into <code>~/.local/bin</code>.
+        </p>
+        <button className="btn" onClick={install}>Install dsd command</button>
+        {msg && <div className="muted" style={{ marginTop: 8 }}>{msg}</div>}
       </div>
     </div>
   );
