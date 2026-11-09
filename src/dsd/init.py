@@ -114,7 +114,7 @@ def init_project(root: Path, name: str | None = None) -> InitReport:
     # 4. .gitignore managed block.
     gitignore = root / ".gitignore"
     existing = gitignore.read_text() if gitignore.exists() else ""
-    body = f"{project.runs_dir.rstrip('/')}/\n{INDEX_FILE}\n{INDEX_FILE}-*"
+    body = f"{project.runs_dir.rstrip('/')}/\n{INDEX_FILE}\n{INDEX_FILE}-*\n{DSD_DIR}/review.json"
     _write(report, gitignore, upsert_block(existing, GITIGNORE_START, GITIGNORE_END, body))
 
     # 5. CLAUDE.md managed block. Keep the current block if present (it holds live state

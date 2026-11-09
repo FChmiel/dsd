@@ -1,5 +1,5 @@
 ---
-title: {name}: main plan
+title: "{name}: main plan"
 status: active
 ---
 

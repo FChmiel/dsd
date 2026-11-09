@@ -1,0 +1,121 @@
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { qs, useApi, type Run } from "../api";
+import { href, linkProps, navigate } from "../router";
+import { RunsTable, varyingParams } from "./bits";
+
+/** Resolve a link relative to the current doc's folder (docs-relative paths). */
+export function resolveDocPath(base: string | null, target: string): string {
+  const dir = base && base.includes("/") ? base.slice(0, base.lastIndexOf("/")) : "";
+  const parts = (target.startsWith("/") ? target.slice(1) : dir ? `${dir}/${target}` : target).split("/");
+  const out: string[] = [];
+  for (const p of parts) {
+    if (p === "..") out.pop();
+    else if (p && p !== ".") out.push(p);
+  }
+  return out.join("/");
+}
+
+function preprocess(md: string): string {
+  // Obsidian-style embeds and wikilinks (outside code fences)
+  const lines = md.split("\n");
+  let fence = false;
+  return lines
+    .map((ln) => {
+      if (/^\s*(```|~~~)/.test(ln)) fence = !fence;
+      if (fence) return ln;
+      const embed = ln.match(/^\s*!\[\[([^\]]+)\]\]\s*$/);
+      // Wikilinks resolve from the docs root (like an Obsidian vault), not the current folder.
+      if (embed) return "```dsd-embed\n" + (embed[1].trim().startsWith("run:") ? "" : "/") + embed[1].trim() + "\n```";
+      return ln.replace(/(?<!!)\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, p, label) => `[${label ?? p}](/${p.replace(/ /g, "%20")})`);
+    })
+    .join("\n");
+}
+
+function parseBlock(text: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  text.split("\n").forEach((ln) => {
+    const m = ln.match(/^\s*([\w_]+)\s*:\s*(.+?)\s*$/);
+    if (m) out[m[1]] = m[2];
+  });
+  return out;
+}
+
+function RunsEmbed({ pid, spec }: { pid: string; spec: string }) {
+  const q = parseBlock(spec);
+  const where = q.where ? q.where.split(/\s*;\s*|\s*,\s*(?=[\w.]+\s*(?:>=|<=|!=|==|=|>|<|~))/).filter(Boolean) : [];
+  const url = `/api/p/${pid}/runs${qs({ benchmark: q.benchmark, task: q.task, status: q.status, tag: q.tag, sort: q.sort, limit: q.limit ?? 10, where })}`;
+  const { data, error } = useApi<Run[]>(url, { poll: 15000 });
+  const metricKeys = q.metrics ? q.metrics.split(/[,\s]+/).filter(Boolean)
+    : Array.from(new Set((data ?? []).flatMap((r) => Object.keys(r.metrics)))).slice(0, 4);
+  return (
+    <div className="embed">
+      <div className="embed-head"><span>dsd-runs</span><span className="spacer" />
+        {Object.entries(q).map(([k, v]) => <span key={k}>{k}: {v}</span>)}
+      </div>
+      {error && <div className="error-box">{error}</div>}
+      {data && data.length === 0 && <div className="empty">No matching runs</div>}
+      {data && data.length > 0 && (
+        <RunsTable pid={pid} runs={data} metricKeys={metricKeys} paramKeys={q.params ? q.params.split(/[,\s]+/) : varyingParams(data, 3)} compact />
+      )}
+    </div>
+  );
+}
+
+function FileEmbed({ pid, path }: { pid: string; path: string }) {
+  const src = path.startsWith("run:")
+    ? (() => { const [rid, ...rest] = path.slice(4).split("/"); return `/api/p/${pid}/runs/${rid}/artifacts/${rest.join("/")}`; })()
+    : `/api/p/${pid}/docs/raw/${path}`;
+  const isImg = /\.(png|jpe?g|svg|gif|webp)$/i.test(path);
+  return (
+    <div className="embed">
+      <div className="embed-head"><span>{path}</span><span className="spacer" />
+        <a href={src} target="_blank" rel="noreferrer">open ↗</a>
+      </div>
+      {isImg ? <img src={src} alt={path} style={{ display: "block", maxWidth: "100%" }} />
+        : <iframe src={src} sandbox="allow-scripts allow-popups" title={path} />}
+    </div>
+  );
+}
+
+export function Markdown({ pid, source, docPath }: { pid: string; source: string; docPath: string | null }) {
+  return (
+    <div className="md">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        urlTransform={(url) => (/^\s*javascript:/i.test(url) ? "" : url)}
+        components={{
+          pre({ children, node, ...rest }) {
+            const child: any = Array.isArray(children) ? children[0] : children;
+            const cls: string = child?.props?.className ?? "";
+            const text = String(child?.props?.children ?? "").replace(/\n$/, "");
+            if (cls.includes("language-dsd-runs")) return <RunsEmbed pid={pid} spec={text} />;
+            if (cls.includes("language-dsd-embed")) {
+              const t = text.trim();
+              return <FileEmbed pid={pid} path={t.startsWith("run:") ? t : resolveDocPath(docPath, t)} />;
+            }
+            return <pre {...rest}>{children}</pre>;
+          },
+          a({ href: to, children, node, ...rest }) {
+            const url = to ?? "";
+            if (url.startsWith("run:")) return <a {...linkProps(href(pid, "runs", url.slice(4)))}>{children}</a>;
+            if (url.startsWith("task:")) return <a {...linkProps(`${href(pid, "plans")}?task=${url.slice(5)}`)}>{children}</a>;
+            if (/^[a-z]+:/i.test(url) || url.startsWith("#")) return <a href={url} target="_blank" rel="noreferrer" {...rest}>{children}</a>;
+            const target = resolveDocPath(docPath, decodeURIComponent(url.split("#")[0]));
+            if (target.startsWith("plans/") && target.endsWith(".md")) {
+              return <a {...linkProps(href(pid, "plans", target.slice(6, -3)))}>{children}</a>;
+            }
+            return <a href={href(pid, "docs", target)} onClick={(e) => { e.preventDefault(); navigate(href(pid, "docs", target)); }}>{children}</a>;
+          },
+          img({ src, alt, node, ...rest }) {
+            const s = src ?? "";
+            const resolved = /^[a-z]+:/i.test(s) || s.startsWith("/") ? s : `/api/p/${pid}/docs/raw/${resolveDocPath(docPath, s)}`;
+            return <img src={resolved} alt={alt} {...rest} />;
+          },
+        }}
+      >
+        {preprocess(source)}
+      </ReactMarkdown>
+    </div>
+  );
+}

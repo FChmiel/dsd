@@ -191,3 +191,12 @@ def test_cli_runs_and_bench(project, monkeypatch):
     rid = json.loads(res.output)[0]["id"]
     res = r.invoke(app, ["runs", "show", rid[-8:]])
     assert res.exit_code == 0 and "params" in res.output, res.output
+
+
+def test_leaderboard_multi_group(project):
+    make_runs()
+    with Index(project) as idx:
+        idx.sync()
+        g = leaderboard(idx, project, "churn-v1", group_by="params.model.type,params.seed")
+        assert len(g["rows"]) == 6 and all(r["n"] == 1 for r in g["rows"])
+        assert any(r["group"] == "xgb · 0" for r in g["rows"])

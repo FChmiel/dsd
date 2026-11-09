@@ -207,9 +207,11 @@ def leaderboard(idx: Index, project: Project, benchmark: str, group_by: str | No
         } for i, r in enumerate(rows)]
         return {"benchmark": benchmark, "spec": spec, "metrics": metric_keys, "grouped": False, "rows": board}
 
+    fields = [f.strip() for f in group_by.split(",") if f.strip()]
     groups: dict[str, list[dict]] = {}
     for r in runs:
-        groups.setdefault(str(get_field(r, group_by)), []).append(r)
+        key = " · ".join(str(get_field(r, f)) for f in fields)
+        groups.setdefault(key, []).append(r)
     rows = []
     for g, rs in groups.items():
         stats = {k: _agg([r["metrics"].get(k) for r in rs]) for k in metric_keys}

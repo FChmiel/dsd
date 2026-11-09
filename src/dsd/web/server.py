@@ -31,6 +31,9 @@ def create_app(initial: list[Path] | None = None) -> FastAPI:
 
     @contextlib.asynccontextmanager
     async def lifespan(app):
+        from .terminals import resolve_claude_command
+
+        asyncio.get_running_loop().run_in_executor(None, resolve_claude_command)  # warm the lookup
         yield
         terms.close_all()
 
@@ -392,6 +395,8 @@ def create_app(initial: list[Path] | None = None) -> FastAPI:
 
         @app.get("/{full_path:path}", include_in_schema=False)
         def spa(full_path: str):
+            if full_path.startswith("api/"):
+                raise HTTPException(404)
             f = DIST / full_path
             if full_path and f.is_file():
                 return FileResponse(f)

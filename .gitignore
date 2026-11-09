@@ -11,4 +11,8 @@ build/
 .dsd/runs/
 .dsd/index.db
 .dsd/index.db-*
+.dsd/review.json
 # dsd:end
+
+.demo/
+ui/node_modules/

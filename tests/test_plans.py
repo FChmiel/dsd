@@ -175,3 +175,9 @@ def test_cli_task_flow_updates_claude_md(project, monkeypatch):
     assert r.invoke(app, ["plan", "new", "eval"]).exit_code == 0
     assert r.invoke(app, ["plan", "check"]).exit_code == 0
     assert r.invoke(app, ["task", "start", "T-404"]).exit_code == 1
+
+
+def test_lenient_frontmatter(project):
+    write_main(project, "---\ntitle: Churn: main plan\nstatus: active\n---\n\n- [ ] T-1 x\n")
+    pl = plans.load_plan(project)
+    assert pl.meta == {"title": "Churn: main plan", "status": "active"} and pl.title == "Churn: main plan"

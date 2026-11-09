@@ -124,10 +124,16 @@ def _frontmatter(lines: list[str]) -> tuple[dict, int]:
         return {}, 0
     for i in range(1, len(lines)):
         if lines[i].strip() in ("---", "..."):
+            body = "".join(lines[1:i])
             try:
-                meta = yaml.safe_load("".join(lines[1:i])) or {}
+                meta = yaml.safe_load(body) or {}
             except yaml.YAMLError:
+                # Hand-written frontmatter is often not strict YAML (e.g. `title: a: b`): fall back to key: value lines.
                 meta = {}
+                for ln in lines[1:i]:
+                    k, sep, v = ln.partition(":")
+                    if sep and k.strip() and not k.startswith((" ", "\t")):
+                        meta[k.strip()] = v.strip().strip("\"'")
             return (meta if isinstance(meta, dict) else {}), i + 1
     return {}, 0
 
