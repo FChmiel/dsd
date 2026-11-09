@@ -275,5 +275,315 @@ def task_log(task_id: str) -> None:
     console.print(out.stdout.rstrip() or f"[dim]no commits with 'Task: {tid}'[/]")
 
 
+# ---------------------------------------------------------------- runs, benchmarks, exec
+
+runs_app = typer.Typer(no_args_is_help=True, help="Experiment runs.")
+bench_app = typer.Typer(no_args_is_help=True, help="Benchmarks (named groups of runs) and leaderboards.")
+app.add_typer(runs_app, name="runs")
+app.add_typer(bench_app, name="bench")
+
+_RUN_STYLE = {"running": "cyan", "finished": "green", "failed": "red", "killed": "yellow",
+              "crashed": "red", "queued": "blue"}
+
+
+def short(rid: str) -> str:
+    return rid[-8:].lower()
+
+
+def _fmt_num(v) -> str:
+    if v is None:
+        return "—"
+    if isinstance(v, float):
+        if v != 0 and (abs(v) >= 1e5 or abs(v) < 1e-3):
+            return f"{v:.3e}"
+        return f"{v:.4g}"
+    return str(v)
+
+
+def _index():
+    from .tracking.index import Index
+
+    p = _project()
+    idx = Index(p)
+    idx.sync()
+    return p, idx
+
+
+def _resolve(idx, ref: str) -> str:
+    try:
+        return idx.resolve_id(ref)
+    except KeyError as e:
+        err.print(f"[red]{e.args[0]}[/red]")
+        raise typer.Exit(1)
+
+
+@runs_app.command("ls")
+def runs_ls(
+    benchmark: str = typer.Option(None, "--benchmark", "-b"),
+    task: str = typer.Option(None, "--task", "-t"),
+    status: str = typer.Option(None, "--status", "-s"),
+    tag: str = typer.Option(None, "--tag"),
+    where: list[str] = typer.Option(None, "--where", "-w", help="e.g. 'metrics.auc>=0.8' (repeatable)"),
+    sort: str = typer.Option(None, "--sort", help="e.g. -metrics.auc"),
+    metric: list[str] = typer.Option(None, "--metric", "-m", help="Metric columns to show."),
+    limit: int = typer.Option(30, "--limit", "-n"),
+    json: bool = typer.Option(False, "--json"),
+) -> None:
+    """List runs (newest first)."""
+    from rich.table import Table
+
+    from .tracking.query import QueryError, list_runs
+
+    p, idx = _index()
+    if task:
+        task = plans.normalize_id(task)
+    try:
+        rows = list_runs(idx, benchmark=benchmark, task=task, status=status, tag=tag, where=where, sort=sort, limit=limit)
+    except QueryError as e:
+        err.print(f"[red]{e}[/red]")
+        raise typer.Exit(1)
+    if json:
+        return _emit_json(rows)
+    keys = metric or sorted({k for r in rows for k in r["metrics"]})[:5]
+    t = Table(box=None, header_style="bold dim")
+    for col in ("id", "name", "status", "bench", "task", "created", *keys, "art"):
+        t.add_column(col, justify="right" if col in keys or col == "art" else "left")
+    for r in rows:
+        st = r["status"]
+        t.add_row(
+            short(r["id"]), r["name"] or "", f"[{_RUN_STYLE.get(st, 'white')}]{st}[/]", r["benchmark"] or "",
+            r["task"] or "", (r["created_at"] or "")[:16].replace("T", " "),
+            *[_fmt_num(r["metrics"].get(k)) for k in keys], str(r["artifacts"] or ""),
+        )
+    console.print(t)
+
+
+@runs_app.command("show")
+def runs_show(ref: str, json: bool = typer.Option(False, "--json")) -> None:
+    """Show a run: params, metrics, datasets, artifacts, git."""
+    p, idx = _index()
+    d = idx.run_detail(_resolve(idx, ref))
+    if json:
+        return _emit_json(d)
+    st = d["status"]
+    console.print(f"[bold]{d['name']}[/]  {d['id']}  [{_RUN_STYLE.get(st, 'white')}]{st}[/]")
+    for k in ("benchmark", "task", "created_at", "ended_at", "error"):
+        if d.get(k):
+            console.print(f"  {k:<10} {d[k]}")
+    if d.get("git"):
+        g = d["git"]
+        console.print(f"  git        {(g.get('sha') or '')[:10]} {g.get('branch') or ''}{' [yellow](dirty)[/]' if g.get('dirty') else ''}")
+    if d.get("command"):
+        console.print(f"  command    {' '.join(d['command'])}")
+    if d["params"]:
+        console.print("[bold]params[/]")
+        for k, v in sorted(d["params"].items()):
+            console.print(f"  {k:<28} {v}")
+    if d["metric_stats"]:
+        console.print("[bold]metrics[/]  [dim](last · min · max · n)[/]")
+        for k, s in sorted(d["metric_stats"].items()):
+            console.print(f"  {k:<28} {_fmt_num(s['last']):>10}  {_fmt_num(s['min']):>10}  {_fmt_num(s['max']):>10}  {s['n']}")
+    if d["info"]:
+        console.print("[bold]info[/]")
+        for k, v in d["info"].items():
+            console.print(f"  {k:<28} {v}")
+    for ds in d["datasets"]:
+        console.print(f"[bold]dataset[/] {ds}")
+    if d["artifact_list"]:
+        console.print("[bold]artifacts[/]")
+        for a in d["artifact_list"]:
+            console.print(f"  {a['path']:<40} {a['size']:>9}  {a.get('description') or ''}")
+
+
+@runs_app.command("compare")
+def runs_compare(refs: list[str], all: bool = typer.Option(False, "--all", "-a", help="Show identical params too.")) -> None:
+    """Compare runs side by side (params that differ, metrics)."""
+    from rich.table import Table
+
+    from .tracking.query import compare
+
+    p, idx = _index()
+    c = compare(idx, [_resolve(idx, r) for r in refs])
+    t = Table(box=None, header_style="bold")
+    t.add_column("")
+    for r in c["runs"]:
+        t.add_column(f"{r['name']}\n[dim]{short(r['id'])}[/]", justify="right")
+    t.add_row("[bold]metrics[/]", *[""] * len(c["runs"]))
+    for m in c["metrics"]:
+        vals = m["values"]
+        nums = [v for v in vals if v is not None]
+        best = max(nums) if nums else None
+        t.add_row(f"  {m['key']}", *[f"[bold]{_fmt_num(v)}[/]" if v == best and len(nums) > 1 else _fmt_num(v) for v in vals])
+    t.add_row("[bold]params[/]", *[""] * len(c["runs"]))
+    for prm in c["params"]:
+        if all or prm["differs"]:
+            t.add_row(f"  {prm['key']}", *[str(v) for v in prm["values"]])
+    console.print(t)
+
+
+@runs_app.command("rm")
+def runs_rm(refs: list[str], yes: bool = typer.Option(False, "--yes", "-y")) -> None:
+    """Delete runs (their bundles)."""
+    import shutil
+
+    p, idx = _index()
+    ids = [_resolve(idx, r) for r in refs]
+    if not yes:
+        console.print(f"Would delete {len(ids)} run(s): {', '.join(short(i) for i in ids)}. Re-run with --yes.")
+        raise typer.Exit(1)
+    for rid in ids:
+        shutil.rmtree(p.runs_path / rid, ignore_errors=True)
+    idx.sync()
+    console.print(f"[green]deleted[/] {len(ids)} run(s)")
+
+
+@runs_app.command("reindex")
+def runs_reindex() -> None:
+    """Rebuild the SQLite index from run bundles."""
+    p, idx = _index()
+    stats = idx.rebuild()
+    console.print(f"indexed {stats['added']} run(s)")
+
+
+@app.command("open")
+def open_(ref: str = typer.Argument(..., help="run id, or run-id/artifact-path")) -> None:
+    """Open a run's HTML artifact (or its folder) with the system viewer."""
+    import subprocess
+
+    p, idx = _index()
+    run_ref, _, art = ref.partition("/")
+    d = idx.run_detail(_resolve(idx, run_ref))
+    bundle = Path(d["bundle_path"])
+    if art:
+        target = bundle / "artifacts" / art
+    else:
+        htmls = [a["path"] for a in d["artifact_list"] if a["path"].endswith(".html")]
+        target = bundle / "artifacts" / htmls[0] if htmls else bundle
+    subprocess.run(["open", str(target)])
+
+
+@bench_app.command("ls")
+def bench_ls() -> None:
+    """List benchmarks."""
+    from .tracking.query import load_bench_specs
+
+    p, idx = _index()
+    specs = load_bench_specs(p)
+    names = {b["name"]: b for b in idx.benchmarks()}
+    for name in sorted(set(names) | set(specs)):
+        b, s = names.get(name, {}), specs.get(name, {})
+        rank = f"{s['primary']} ({s.get('direction', 'max')})" if s.get("primary") else "[dim]no primary metric[/]"
+        console.print(f"[bold]{name:<24}[/] {b.get('runs', 0):>4} runs   {rank}")
+
+
+@bench_app.command("set")
+def bench_set(
+    name: str,
+    primary: str = typer.Option(None, "--primary", "-p", help="Primary metric used for ranking."),
+    direction: str = typer.Option(None, "--direction", "-d", help="max or min"),
+    description: str = typer.Option(None, "--description"),
+) -> None:
+    """Configure a benchmark's ranking (stored in .dsd/benchmarks.toml)."""
+    from .tracking.query import QueryError, set_bench_spec
+
+    p = _project()
+    try:
+        spec = set_bench_spec(p, name, primary, direction, description)
+    except QueryError as e:
+        err.print(f"[red]{e}[/red]")
+        raise typer.Exit(1)
+    console.print(f"[green]{name}[/] {spec}")
+
+
+@bench_app.command("board")
+def bench_board(
+    name: str,
+    group_by: str = typer.Option(None, "--group-by", "-g", help="e.g. params.model or name"),
+    where: list[str] = typer.Option(None, "--where", "-w"),
+    all_status: bool = typer.Option(False, "--all-status", help="Include unfinished runs."),
+    json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Leaderboard for a benchmark (mean ± std per group when grouped)."""
+    from rich.table import Table
+
+    from .tracking.query import leaderboard
+
+    p, idx = _index()
+    b = leaderboard(idx, p, name, group_by=group_by, status=None if all_status else "finished", where=where)
+    if json:
+        return _emit_json(b)
+    primary = b["spec"].get("primary")
+    keys = b["metrics"][:8]
+    t = Table(box=None, header_style="bold", title=f"{name}" + (f" · ranked by {primary} ({b['spec'].get('direction', 'max')})" if primary else ""))
+    t.add_column("#", justify="right")
+    t.add_column(group_by if b["grouped"] else "run")
+    if b["grouped"]:
+        t.add_column("n", justify="right")
+    for k in keys:
+        t.add_column(k, justify="right", style="bold" if k == primary else None)
+    for row in b["rows"]:
+        if b["grouped"]:
+            cells = []
+            for k in keys:
+                s = row["stats"][k]
+                cells.append("—" if s["mean"] is None else f"{_fmt_num(s['mean'])} ± {_fmt_num(s['std'])}" if s["n"] > 1 else _fmt_num(s["mean"]))
+            t.add_row(str(row.get("rank") or ""), row["group"], str(row["n"]), *cells)
+        else:
+            t.add_row(str(row["rank"] or ""), f"{row['run']['name']} [dim]{short(row['run']['id'])}[/]",
+                      *[_fmt_num(row["metrics"].get(k)) for k in keys])
+    console.print(t)
+
+
+@app.command("exec", context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
+def exec_(
+    ctx: typer.Context,
+    name: str = typer.Option(None, "--name", "-n"),
+    benchmark: str = typer.Option(None, "--benchmark", "-b"),
+    task: str = typer.Option(None, "--task", "-t"),
+    tag: list[str] = typer.Option(None, "--tag"),
+    params: Path = typer.Option(None, "--params", help="YAML/JSON config file recorded as params."),
+    param: list[str] = typer.Option(None, "--param", "-p", help="key=value (repeatable)."),
+    dataset: list[str] = typer.Option(None, "--dataset", help="id, URL, or path to a config.yml (repeatable)."),
+) -> None:
+    """Run a command as a tracked experiment:  dsd exec -b churn-v1 -- python train.py --config x.yaml"""
+    from .tracking.capture import dataset as make_ds
+    from .tracking.execute import exec_command, load_params_file
+    from .tracking.query import _coerce
+
+    cmd = list(ctx.args)
+    if cmd and cmd[0] == "--":
+        cmd = cmd[1:]
+    if not cmd:
+        err.print("[red]usage: dsd exec [options] -- <command> [args...][/red]")
+        raise typer.Exit(2)
+    p = _project()
+    prm: dict = load_params_file(params) if params else {}
+    for kv in param or []:
+        k, _, v = kv.partition("=")
+        prm[k.strip()] = _coerce(v.strip())
+    dss = []
+    for ds in dataset or []:
+        if Path(ds).suffix in (".yml", ".yaml", ".json", ".toml") and Path(ds).exists():
+            dss.append(make_ds(config=ds))
+        elif "://" in ds or ds.startswith("git@"):
+            dss.append(make_ds(uri=ds))
+        else:
+            dss.append(make_ds(id=ds))
+    if params:
+        dss_cfg = {"params_file": str(params)}
+    else:
+        dss_cfg = {}
+    if task:
+        task = plans.normalize_id(task)
+    bundle, code = exec_command(p, cmd, name=name, benchmark=benchmark, task=task, tags=tag, params=prm, datasets=dss)
+    if dss_cfg:
+        bundle.update_meta(info={**bundle.read_meta().get("info", {}), **dss_cfg})
+    meta = bundle.read_meta()
+    st = meta["status"]
+    err.print(f"[dim]dsd:[/] run [bold]{short(bundle.id)}[/] {meta['name']} → [{_RUN_STYLE.get(st, 'white')}]{st}[/]"
+              f"  [dim](dsd runs show {short(bundle.id)})[/]")
+    raise typer.Exit(code)
+
+
 if __name__ == "__main__":
     app()
