@@ -42,7 +42,7 @@ export function RunDetail({ rid, tab: tabParam }: { rid: string; tab: string | n
             <dt>git</dt>
             <dd className="mono">{d.git?.sha ? d.git.sha.slice(0, 10) : "no commit"} {d.git?.branch ?? ""}
               {d.git?.dirty && <a style={{ marginLeft: 6 }} onClick={() => setTab("diff")} href="#">dirty ↗</a>}</dd>
-            <dt>user</dt><dd>{d.user}</dd>
+            <dt>user</dt><dd>{d.user}{d.worktree && <span className="pill" style={{ marginLeft: 8 }}>⎇ {d.worktree}</span>}</dd>
             {d.command && <><dt>command</dt><dd className="mono" style={{ gridColumn: "span 3", fontSize: 12 }}>{d.command.join(" ")}</dd></>}
             {d.error && <><dt>error</dt><dd style={{ gridColumn: "span 3", color: "var(--bad)" }} className="mono">{d.error}</dd></>}
             {d.tags.length > 0 && <><dt>tags</dt><dd style={{ gridColumn: "span 3" }}>{d.tags.map((t: string) => <span key={t} className="tag">#{t} </span>)}</dd></>}

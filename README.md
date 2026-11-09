@@ -55,6 +55,30 @@ uv run python examples/make_demo.py      # builds .demo/churn-model (git repo, p
 dsd ui .demo/churn-model
 ```
 
+## Worktrees: one session per branch
+
+By default, **+ New session** in the agent pane starts Claude in a **new git worktree** on branch `dsd/<name>`, so parallel agents never edit the same checkout. The launcher can also attach to an existing worktree or use the main checkout. "Work on this in a worktree" on a plan task creates (or reuses) a worktree named after the task.
+
+- Worktrees live in `~/.dsd/worktrees/<project>/<name>`.
+- dsd copies its own wiring into each worktree (`.mcp.json`, skills, `CLAUDE.md` block) along with any files you list. These copies are never shown as changes and never committed.
+- Experiment runs made inside a worktree are stored in the main project's run history, tagged with the worktree and branch.
+- **Changes** reviews a worktree's whole branch against its base: its commits, uncommitted edits and new files. Comments go to that worktree's agent.
+- **Worktrees** shows ahead/behind and dirty status, and lets you commit, merge (merge commit or squash; a merge with conflicts is aborted cleanly) or remove each worktree.
+
+```toml
+# .dsd/project.toml
+[worktree]
+setup = "uv sync"          # runs in a new worktree before the agent starts
+copy = [".env", "data/local.parquet"]
+```
+
+```sh
+dsd wt new --task T-6        # prints the path:  cd "$(dsd wt new --task T-6)"
+dsd wt ls
+dsd wt merge t-6-add-interaction-features [--squash]
+dsd wt rm sharp-orca --delete-branch
+```
+
 ## Agent terminals
 
 "+ Claude" runs Claude Code in a PTY inside the project. The command it uses is the first of these that exists:
@@ -68,7 +92,7 @@ Terminals keep running if you close the browser tab, and reattach when you reope
 ## Develop
 
 ```sh
-uv run pytest                           # Python: 44 tests
+uv run pytest                           # Python: 50 tests
 cd ui && npm install && npm run dev     # UI dev server on :5173, proxied to `dsd ui --no-open` on :8765
 cd ui && npm run build                  # builds into src/dsd/web/dist (served by `dsd ui`)
 ```

@@ -15,7 +15,7 @@ from fastapi import Body, FastAPI, HTTPException, Query, WebSocket, WebSocketDis
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .. import __version__, plans, registry, review
+from .. import __version__, plans, registry, review, worktrees
 from .. import docs as docs_mod
 from ..init import init_project, refresh_claude_md
 from ..project import Project, ProjectNotFound, load_project
@@ -51,7 +51,7 @@ def create_app(initial: list[Path] | None = None) -> FastAPI:
     def guard(fn, *a, **kw):
         try:
             return fn(*a, **kw)
-        except (plans.PlanError, docs_mod.DocsError, QueryError, ValueError) as e:
+        except (plans.PlanError, docs_mod.DocsError, QueryError, ValueError, worktrees.WorktreeError) as e:
             raise HTTPException(400, str(e))
         except (KeyError, FileNotFoundError) as e:
             raise HTTPException(404, str(e.args[0] if e.args else e))
@@ -111,6 +111,7 @@ def create_app(initial: list[Path] | None = None) -> FastAPI:
             "recent_runs": recent,
             "changes": len(review.working_changes(p)["files"]),
             "open_comments": sum(1 for c in review.load_comments(p) if c["status"] == "open"),
+            "worktrees": max(0, len(worktrees.list_worktrees(p, with_status=False)) - 1) if review.is_repo(p.root) else 0,
         }
 
     # ------------------------------------------------------------ plans & tasks
@@ -274,9 +275,15 @@ def create_app(initial: list[Path] | None = None) -> FastAPI:
 
     # ------------------------------------------------------------ review (diffs + comments)
     @app.get("/api/p/{pid}/changes")
-    def changes(pid: str, ref: str | None = None):
+    def changes(pid: str, ref: str | None = None, worktree: str | None = None):
         p = get_project(pid)
-        return guard(review.commit_changes, p, ref) if ref else review.working_changes(p)
+        if ref:
+            return guard(review.commit_changes, p, ref)
+        if worktree and worktree != "main":
+            wt = guard(worktrees.get_worktree, p, worktree)
+            res = review.working_changes(p, Path(wt["path"]), base=wt["base"], ignore=wt["copied"])
+            return {**res, "worktree": wt["name"], "branch": wt["branch"]}
+        return review.working_changes(p)
 
     @app.get("/api/p/{pid}/commits")
     def commits(pid: str):
@@ -288,8 +295,10 @@ def create_app(initial: list[Path] | None = None) -> FastAPI:
 
     @app.post("/api/p/{pid}/comments")
     def comment_add(pid: str, path: str = Body(...), line: int | None = Body(None), text: str = Body(...),
-                    side: str = Body("new"), code: str | None = Body(None), ref: str | None = Body(None)):
-        return review.add_comment(get_project(pid), path, line, text, side, code, ref)
+                    side: str = Body("new"), code: str | None = Body(None), ref: str | None = Body(None),
+                    worktree: str | None = Body(None)):
+        return review.add_comment(get_project(pid), path, line, text, side, code, ref,
+                                  None if worktree in (None, "main") else worktree)
 
     @app.patch("/api/p/{pid}/comments/{cid}")
     def comment_update(pid: str, cid: str, text: str | None = Body(None), status: str | None = Body(None)):
@@ -321,9 +330,71 @@ def create_app(initial: list[Path] | None = None) -> FastAPI:
 
     @app.post("/api/p/{pid}/terminals")
     async def terminals_new(pid: str, kind: str = Body("shell", embed=True), command: str | None = Body(None, embed=True),
-                            title: str | None = Body(None, embed=True)):
+                            title: str | None = Body(None, embed=True), worktree: str | None = Body(None, embed=True),
+                            new_worktree: dict | None = Body(None, embed=True)):
+        """Open a terminal in the main checkout, an existing worktree, or a brand-new worktree.
+
+        new_worktree: {"name"?, "base"?, "task"?, "task_title"?} creates dsd/<name> first and runs the
+        project's [worktree] setup command (if any) before starting the agent.
+        """
         p = get_project(pid)
-        return terms.create(p.id, str(p.root), kind=kind, command=command, title=title).info()
+        setup = None
+        if new_worktree is not None:
+            wt = await asyncio.to_thread(
+                guard, worktrees.create_worktree, p, new_worktree.get("name") or None, new_worktree.get("base") or None,
+                new_worktree.get("task") or None, new_worktree.get("task_title") or None)
+            setup = worktrees.setup_command(p)
+        elif worktree and worktree != "main":
+            wt = guard(worktrees.get_worktree, p, worktree)
+        else:
+            wt = None
+        if wt is None:
+            branch = worktrees.current_branch(p.root) if review.is_repo(p.root) else None
+            return terms.create(p.id, str(p.root), kind=kind, command=command, title=title, branch=branch).info()
+        return terms.create(p.id, wt["path"], kind=kind, command=command, title=title, worktree=wt["name"],
+                            branch=wt["branch"], setup=setup).info()
+
+    # ------------------------------------------------------------ worktrees
+    @app.get("/api/p/{pid}/worktrees")
+    def worktrees_list(pid: str):
+        p = get_project(pid)
+        if not review.is_repo(p.root):
+            return []
+        wts = worktrees.list_worktrees(p)
+        open_terms = terms.list(pid)
+        for w in wts:
+            w["terminals"] = [t["id"] for t in open_terms if (t["worktree"] or "main") == w["name"]]
+        return wts
+
+    @app.get("/api/p/{pid}/branches")
+    def branches_list(pid: str):
+        p = get_project(pid)
+        if not review.is_repo(p.root):
+            return {"current": None, "branches": []}
+        return {"current": worktrees.current_branch(p.root), "branches": worktrees.branches(p)}
+
+    @app.post("/api/p/{pid}/worktrees")
+    def worktrees_create(pid: str, name: str | None = Body(None), base: str | None = Body(None),
+                         task: str | None = Body(None), task_title: str | None = Body(None)):
+        return guard(worktrees.create_worktree, get_project(pid), name, base, task, task_title)
+
+    @app.delete("/api/p/{pid}/worktrees/{name}")
+    def worktrees_remove(pid: str, name: str, force: bool = False, delete_branch: bool = False):
+        p = get_project(pid)
+        wt = guard(worktrees.get_worktree, p, name)
+        for t in terms.list(pid):
+            if t["worktree"] == wt["name"]:
+                terms.close(t["id"])
+        return guard(worktrees.remove_worktree, p, name, force, delete_branch)
+
+    @app.post("/api/p/{pid}/worktrees/{name}/commit")
+    def worktrees_commit(pid: str, name: str, message: str = Body(..., embed=True)):
+        return guard(worktrees.commit_all, get_project(pid), name, message)
+
+    @app.post("/api/p/{pid}/worktrees/{name}/merge")
+    def worktrees_merge(pid: str, name: str, strategy: str = Body("merge", embed=True),
+                        message: str | None = Body(None, embed=True)):
+        return guard(worktrees.merge_worktree, get_project(pid), name, strategy, message)
 
     @app.post("/api/terminals/{tid}/input")
     def terminal_input(tid: str, text: str = Body(..., embed=True), submit: bool = Body(False, embed=True)):

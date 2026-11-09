@@ -190,7 +190,10 @@ function TaskDetail({ task, onChange, setStatus }: { task: Task; onChange: () =>
           <button key={s} className={`btn sm ${task.status === s ? "primary" : ""}`} onClick={() => setStatus(s)}>{s}</button>
         ))}
         <span className="spacer" />
-        <button className="btn sm" onClick={() => sendToAgent(`/dsd-next-task ${task.id}`)}>Work on this with Claude</button>
+        <button className="btn sm" title="Starts Claude in this task's own worktree (branch dsd/<task>), or reuses it"
+          onClick={() => sendToAgent(`/dsd-next-task ${task.id}`, { session: { mode: "new", task: task.id!, task_title: task.title } })}>
+          Work on this in a worktree
+        </button>
         {task.tags.includes("exp") || task.attrs.benchmark ? (
           <button className="btn sm" onClick={() => sendToAgent(`/dsd-run-experiment for ${task.id}${task.attrs.benchmark ? ` on benchmark ${task.attrs.benchmark}` : ""}: `)}>Run experiment</button>
         ) : null}

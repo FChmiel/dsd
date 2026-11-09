@@ -1,4 +1,5 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { SessionLauncher, type SessionTarget } from "./SessionLauncher";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -9,6 +10,8 @@ export interface TermInfo {
   title: string;
   kind: string;
   exited: boolean;
+  worktree?: string | null;
+  branch?: string | null;
 }
 
 const THEME = {
@@ -126,31 +129,35 @@ export function TerminalView({ tid, active, onExit }: { tid: string; active: boo
 }
 
 export function TerminalPane(props: {
+  pid: string;
   terminals: TermInfo[];
   activeId: string | null;
   onSelect: (id: string) => void;
-  onNew: (kind: "claude" | "shell") => void;
+  onNew: (kind: "claude" | "shell", target: SessionTarget) => Promise<unknown>;
+  launcherOpen: boolean;
+  setLauncherOpen: (b: boolean) => void;
   onClose: (id: string) => void;
   onExited: (id: string) => void;
   onHide: () => void;
 }) {
-  const { terminals, activeId } = props;
+  const { terminals, activeId, launcherOpen, setLauncherOpen } = props;
   return (
-    <div className="term-pane">
+    <div className="term-pane" style={{ position: "relative" }}>
       <div className="term-tabs">
         {terminals.map((t) => (
           <button key={t.id} className={`term-tab ${t.id === activeId ? "active" : ""}`} onClick={() => props.onSelect(t.id)}
-            title={t.kind === "claude" ? "Claude Code" : "Shell"}>
+            title={`${t.kind === "claude" ? "Claude Code" : "Shell"} · ${t.worktree ? `worktree ${t.worktree}` : "main checkout"}${t.branch ? ` · ${t.branch}` : ""}`}>
             <span className={`dot ${t.kind === "claude" ? "" : "shell"} ${t.exited ? "exited" : ""}`} />
-            {t.title}
+            {t.kind === "claude" ? "Claude" : "Shell"}
+            <span className="branch">{t.worktree ?? t.branch ?? "main"}</span>
             <span className="x" onClick={(e) => { e.stopPropagation(); props.onClose(t.id); }}>×</span>
           </button>
         ))}
         <span style={{ flex: 1 }} />
-        <button className="term-btn" onClick={() => props.onNew("claude")}>+ Claude</button>
-        <button className="term-btn" onClick={() => props.onNew("shell")}>+ Shell</button>
+        <button className="term-btn" data-launcher-toggle onClick={() => setLauncherOpen(!launcherOpen)} title="New Claude or shell session (new worktree, existing worktree, or main checkout)">+ New session</button>
         <button className="term-btn" onClick={props.onHide} title="Hide agent pane (⌘J)">⇥</button>
       </div>
+      {launcherOpen && <SessionLauncher pid={props.pid} onStart={props.onNew} onClose={() => setLauncherOpen(false)} />}
       <div className="term-body">
         {terminals.length === 0 && (
           <div className="term-empty">
@@ -158,9 +165,10 @@ export function TerminalPane(props: {
             Start <b>Claude Code</b> in this project. It gets the dsd MCP server and skills
             (<code>/dsd-next-task</code>, <code>/dsd-run-experiment</code>, <code>/dsd-plan</code>…) from the project's
             <code> .mcp.json</code> and <code>.claude/skills</code>.
+            <div style={{ marginTop: 6 }}>Each new session gets its <b>own git worktree</b> by default, so parallel agents never edit the same checkout.</div>
             <div style={{ marginTop: 14, display: "flex", gap: 8 }}>
-              <button className="term-btn" onClick={() => props.onNew("claude")}>Start Claude</button>
-              <button className="term-btn" onClick={() => props.onNew("shell")}>Open shell</button>
+              <button className="term-btn" onClick={() => setLauncherOpen(true)}>New session…</button>
+              <button className="term-btn" onClick={() => props.onNew("claude", { mode: "main" })}>Claude on main checkout</button>
             </div>
           </div>
         )}

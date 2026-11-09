@@ -235,6 +235,7 @@ class Index:
         d["git"] = meta.get("git")
         d["env"] = meta.get("env")
         d["command"] = meta.get("command")
+        d["worktree"] = meta.get("worktree")
         d["artifact_list"] = [dict(a) for a in self.db.execute(
             "SELECT path,mime,size,sha256,description FROM artifacts WHERE run_id=? ORDER BY path", (rid,))]
         diff = Path(r["bundle_path"]) / "capture" / "git.diff"

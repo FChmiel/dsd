@@ -641,6 +641,87 @@ def backup_restore(snapshot: str, to: Path = typer.Option(..., "--to", help="Des
     raise typer.Exit(1)
 
 
+wt_app = typer.Typer(no_args_is_help=True, help="Git worktrees for parallel agent sessions (branches dsd/<name>).")
+app.add_typer(wt_app, name="wt")
+
+
+def _wt_guard(fn, *a, **kw):
+    from .worktrees import WorktreeError
+
+    try:
+        return fn(*a, **kw)
+    except WorktreeError as e:
+        err.print(f"[red]{e}[/red]")
+        raise typer.Exit(1)
+
+
+@wt_app.command("ls")
+def wt_ls(json: bool = typer.Option(False, "--json")) -> None:
+    """List the main checkout and worktrees with branch, dirty files and ahead/behind."""
+    from . import worktrees as wt
+
+    rows = _wt_guard(wt.list_worktrees, _project())
+    if json:
+        return _emit_json(rows)
+    for w in rows:
+        ab = "" if w["is_main"] or w.get("ahead") is None else f"  [green]↑{w['ahead']}[/] [yellow]↓{w['behind']}[/] vs {w['base']}"
+        dirty = f"  [yellow]{w['dirty']} changed[/]" if w.get("dirty") else ""
+        task = f"  [dim]{w['task']}[/]" if w.get("task") else ""
+        console.print(f"{'★' if w['is_main'] else ' '} [bold]{w['name']:<24}[/] {w['branch'] or '(detached)':<28}{ab}{dirty}{task}")
+        if not w["is_main"]:
+            console.print(f"    [dim]{w['path']}[/]")
+
+
+@wt_app.command("new")
+def wt_new(
+    name: str = typer.Argument(None, help="Name (default: from --task, else random)."),
+    base: str = typer.Option(None, "--base", "-b", help="Base branch (default: current branch)."),
+    task: str = typer.Option(None, "--task", "-t", help="Link to a plan task, e.g. T-12."),
+) -> None:
+    """Create a worktree + branch dsd/<name>; prints its path (cd "$(dsd wt new x)")."""
+    from . import worktrees as wt
+
+    p = _project()
+    title = None
+    if task:
+        task = plans.normalize_id(task)
+        try:
+            title = plans.find_task(p, task)[1].title
+        except PlanError:
+            pass
+    w = _wt_guard(wt.create_worktree, p, name, base, task, title)
+    err.print(f"[green]created[/] {w['name']} on {w['branch']} (from {w['base']})"
+              + (f", copied {', '.join(w['copied'])}" if w.get("copied") else ""))
+    print(w["path"])
+
+
+@wt_app.command("path")
+def wt_path(name: str) -> None:
+    """Print a worktree's path (cd "$(dsd wt path x)")."""
+    from . import worktrees as wt
+
+    print(_wt_guard(wt.get_worktree, _project(), name)["path"])
+
+
+@wt_app.command("rm")
+def wt_rm(name: str, force: bool = typer.Option(False, "--force", "-f", help="Discard uncommitted changes."),
+          delete_branch: bool = typer.Option(False, "--delete-branch", "-d")) -> None:
+    """Remove a worktree (refuses if it has uncommitted changes, unless --force)."""
+    from . import worktrees as wt
+
+    r = _wt_guard(wt.remove_worktree, _project(), name, force, delete_branch)
+    console.print(f"[green]removed[/] {r['removed']}" + (" and its branch" if r["branch_deleted"] else ""))
+
+
+@wt_app.command("merge")
+def wt_merge(name: str, squash: bool = typer.Option(False, "--squash"), message: str = typer.Option(None, "-m")) -> None:
+    """Merge a worktree's branch into its base in the main checkout (aborts cleanly on conflict)."""
+    from . import worktrees as wt
+
+    r = _wt_guard(wt.merge_worktree, _project(), name, "squash" if squash else "merge", message)
+    console.print(f"[green]merged[/] {r['merged']} into {r['into']} ({r['commit']})")
+
+
 @app.command("exec", context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
 def exec_(
     ctx: typer.Context,

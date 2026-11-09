@@ -12,6 +12,8 @@ import { RunDetail } from "./views/RunDetail";
 import { Compare } from "./views/Compare";
 import { Benchmarks } from "./views/Benchmarks";
 import { Changes } from "./views/Changes";
+import { Worktrees } from "./views/Worktrees";
+import { loadSessionDefault, type SessionTarget } from "./components/SessionLauncher";
 
 const NAV = [
   { view: "overview", label: "Overview", icon: "home" },
@@ -20,6 +22,7 @@ const NAV = [
   { view: "runs", label: "Runs", icon: "flask" },
   { view: "benchmarks", label: "Benchmarks", icon: "trophy" },
   { view: "changes", label: "Changes", icon: "diff" },
+  { view: "worktrees", label: "Worktrees", icon: "branch" },
 ] as const;
 
 function load<T>(k: string, d: T): T {
@@ -57,6 +60,7 @@ function Workspace({ project, projects }: { project: Project; projects: Project[
   const [paneOpen, setPaneOpen] = useState<boolean>(() => load("dsd.pane.open", true));
   const [paneWidth, setPaneWidth] = useState<number>(() => load("dsd.pane.width", 560));
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [launcherOpen, setLauncherOpen] = useState(false);
   const overview = useApi<any>(`/api/p/${project.id}/overview`, { poll: 6000 });
 
   const toast = useCallback((m: string) => {
@@ -87,13 +91,18 @@ function Workspace({ project, projects }: { project: Project; projects: Project[
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const newTerminal = useCallback(async (kind: "claude" | "shell") => {
-    const t = await post<TermInfo>(`/api/p/${project.id}/terminals`, { kind });
+  const newTerminal = useCallback(async (kind: "claude" | "shell", target: SessionTarget = { mode: "main" }) => {
+    const body: any = { kind };
+    if (target.mode === "existing") body.worktree = target.worktree;
+    if (target.mode === "new") body.new_worktree = { name: target.name, base: target.base, task: target.task, task_title: target.task_title };
+    if (target.mode === "new") toast("Creating worktree…");
+    const t = await post<TermInfo>(`/api/p/${project.id}/terminals`, body);
     setTerminals((ts) => [...ts, t]);
     setActiveTerm(t.id);
     setPaneOpen(true);
+    if (t.worktree) toast(`${kind === "claude" ? "Claude" : "Shell"} started in worktree ${t.worktree} (${t.branch})`);
     return t;
-  }, [project.id]);
+  }, [project.id, toast]);
 
   const closeTerminal = useCallback(async (id: string) => {
     await del(`/api/terminals/${id}`);
@@ -101,13 +110,28 @@ function Workspace({ project, projects }: { project: Project; projects: Project[
   }, [refreshTerms]);
 
   const sendToAgent = useCallback<AppCtx["sendToAgent"]>(async (text, opts = {}) => {
-    let tid = opts.terminalId ?? activeTerm;
+    let tid: string | null | undefined = opts.terminalId ?? null;
     let fresh = false;
-    if (!tid || !terminals.some((t) => t.id === tid && !t.exited)) {
-      const claude = terminals.find((t) => t.kind === "claude" && !t.exited);
-      if (claude) tid = claude.id;
+    const live = terminals.filter((t) => !t.exited);
+    if (!tid && opts.session) {
+      // a dedicated session, e.g. a task's own worktree: reuse its Claude terminal if one is open
+      const s = opts.session;
+      const wanted = s.mode === "existing" ? s.worktree : s.mode === "main" ? null : undefined;
+      const reuse = live.find((t) => t.kind === "claude" && (
+        (wanted !== undefined && (t.worktree ?? null) === wanted) ||
+        (s.mode === "new" && s.task && (t.worktree === s.task.toLowerCase() || !!t.worktree?.startsWith(`${s.task.toLowerCase()}-`)))));
+      if (reuse) tid = reuse.id;
       else {
-        tid = (await newTerminal("claude")).id;
+        tid = (await newTerminal("claude", s)).id;
+        fresh = true;
+      }
+    }
+    if (!tid) tid = activeTerm;
+    if (!tid || !live.some((t) => t.id === tid)) {
+      const claude = live.find((t) => t.kind === "claude");
+      if (claude) tid = claude.id;
+      else if (!fresh) {
+        tid = (await newTerminal("claude", loadSessionDefault() === "new" ? { mode: "new" } : { mode: "main" })).id;
         fresh = true;
       }
     }
@@ -122,8 +146,9 @@ function Workspace({ project, projects }: { project: Project; projects: Project[
   }, [activeTerm, terminals, newTerminal, toast]);
 
   const ctx = useMemo<AppCtx>(() => ({
-    project, sendToAgent, terminals, activeTerminal: activeTerm, toast,
-  }), [project, sendToAgent, terminals, activeTerm, toast]);
+    project, sendToAgent, terminals, activeTerminal: activeTerm, toast, newSession: newTerminal,
+    openLauncher: () => { setPaneOpen(true); setLauncherOpen(true); },
+  }), [project, sendToAgent, terminals, activeTerm, toast, newTerminal]);
 
   // pane resize
   const dragging = useRef(false);
@@ -151,6 +176,7 @@ function Workspace({ project, projects }: { project: Project; projects: Project[
   const counts: Record<string, { n: number; hot?: boolean } | undefined> = {
     plans: ov ? { n: ov.in_progress.length, hot: ov.in_progress.length > 0 } : undefined,
     changes: ov ? { n: ov.changes, hot: ov.open_comments > 0 } : undefined,
+    worktrees: ov ? { n: ov.worktrees ?? 0 } : undefined,
     benchmarks: ov ? { n: ov.benchmarks.length } : undefined,
   };
 
@@ -162,6 +188,7 @@ function Workspace({ project, projects }: { project: Project; projects: Project[
     case "compare": body = <Compare ids={(route.query.get("ids") || "").split(",").filter(Boolean)} />; break;
     case "benchmarks": body = <Benchmarks name={route.rest[0] ?? null} />; break;
     case "changes": body = <Changes />; break;
+    case "worktrees": body = <Worktrees />; break;
     default: body = <Overview data={ov} reload={overview.reload} />;
   }
 
@@ -205,6 +232,9 @@ function Workspace({ project, projects }: { project: Project; projects: Project[
             }} />
           )}
           <TerminalPane
+            pid={project.id}
+            launcherOpen={launcherOpen}
+            setLauncherOpen={setLauncherOpen}
             terminals={terminals}
             activeId={activeTerm}
             onSelect={setActiveTerm}

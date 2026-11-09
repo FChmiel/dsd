@@ -442,3 +442,37 @@ table.diff tr.line:hover .add-comment { opacity: 1; }
   .page { padding: 16px; }
   .doc-body { padding: 16px; }
 }
+
+/* ---------------------------------------------------------------- session launcher & worktrees */
+.launcher {
+  position: absolute; top: 36px; right: 8px; width: 340px; z-index: 30; background: var(--panel); color: var(--text);
+  border: 1px solid var(--border-strong); border-radius: 10px; box-shadow: var(--shadow); padding: 10px;
+}
+.launcher-title { font-weight: 650; padding: 2px 4px 8px; }
+.launcher-opt {
+  display: flex; gap: 9px; align-items: flex-start; padding: 8px; border-radius: 7px; cursor: pointer;
+  border: 1px solid transparent;
+}
+.launcher-opt:hover { background: var(--panel-2); }
+.launcher-opt.on { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+.launcher-opt.disabled { opacity: 0.55; cursor: default; }
+.launcher-opt input[type="radio"] { margin-top: 3px; }
+.launcher-opt > div { flex: 1; min-width: 0; }
+.launcher-fields { display: flex; gap: 6px; margin-top: 7px; }
+.launcher-fields .input { min-width: 0; flex: 1; font-size: 12px; }
+.launcher-actions { display: flex; gap: 8px; margin-top: 10px; padding: 0 4px; }
+.term-tab .branch {
+  font: 10.5px var(--mono); color: #86b6ef; background: #17273b; padding: 0 5px; border-radius: 4px;
+  max-width: 140px; overflow: hidden; text-overflow: ellipsis;
+}
+.wt-row td { vertical-align: top; }
+.wt-actions { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+.wt-panel { padding: 10px 12px; background: var(--panel-2); border-radius: 6px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.ab .a { color: var(--ok); } .ab .b { color: var(--warn); }
+
+.wt-card { padding: 12px 14px; }
+.wt-top { display: flex; gap: 10px; align-items: flex-start; flex-wrap: wrap; }
+.wt-title { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; flex: 1; min-width: 0; }
+.wt-badges { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.wt-meta { font-size: 12px; margin: 4px 0 10px; display: flex; gap: 6px; flex-wrap: wrap; overflow-wrap: anywhere; }
+.wt-card .wt-actions { justify-content: flex-start; align-items: center; }

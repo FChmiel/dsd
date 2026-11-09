@@ -76,6 +76,7 @@ def exec_command(
     bundle = create_bundle(
         project.runs_path, project.root, project.id, name=name or default_name(cmd),
         benchmark=benchmark, task=task, params=params, tags=tags, datasets=datasets, command=list(cmd),
+        worktree=project.root.name if project.is_worktree else None,
     )
     env = {
         **os.environ,

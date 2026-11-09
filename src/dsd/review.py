@@ -93,12 +93,22 @@ def parse_diff(text: str) -> list[dict]:
     return files
 
 
-def working_changes(project: Project) -> dict:
-    root = project.root
+def working_changes(project: Project, root: Path | None = None, base: str | None = None,
+                    ignore: list[str] | None = None) -> dict:
+    """Uncommitted changes in `root` (default: the project checkout).
+
+    With `base`, diff from merge-base(base, HEAD) instead of HEAD, so a worktree's review shows
+    everything its agent did on the branch: commits plus uncommitted edits plus new files.
+    """
+    root = root or project.root
     if not is_repo(root):
         return {"repo": False, "files": []}
+    since = "HEAD"
+    if base and has_head(root):
+        mb = _git(root, "merge-base", base, "HEAD").strip()
+        since = mb or "HEAD"
     if has_head(root):
-        tracked = _git(root, "diff", "HEAD", "--no-color", "-M", "--no-ext-diff")
+        tracked = _git(root, "diff", since, "--no-color", "-M", "--no-ext-diff")
     else:
         tracked = _git(root, "diff", "--cached", "--no-color", "--no-ext-diff")
     files = parse_diff(tracked)
@@ -116,8 +126,12 @@ def working_changes(project: Project) -> dict:
             f["path"] = path
             f["status"] = "added"
         files.extend(parsed)
+    if ignore:
+        from .worktrees import is_bootstrap
+
+        files = [f for f in files if not is_bootstrap(f["path"], ignore)]
     files.sort(key=lambda f: f["path"])
-    return {"repo": True, "ref": None, "files": files}
+    return {"repo": True, "ref": None, "base": base, "since": since, "files": files}
 
 
 def commit_changes(project: Project, ref: str) -> dict:
@@ -143,7 +157,7 @@ def recent_commits(project: Project, n: int = 30) -> list[dict]:
 # ---------------------------------------------------------------- comments
 
 def _comments_file(project: Project) -> Path:
-    return project.root / ".dsd" / "review.json"
+    return project.state_root / ".dsd" / "review.json"
 
 
 def load_comments(project: Project) -> list[dict]:
@@ -160,9 +174,9 @@ def _save(project: Project, comments: list[dict]) -> None:
 
 
 def add_comment(project: Project, path: str, line: int | None, text: str, side: str = "new",
-                code: str | None = None, ref: str | None = None) -> dict:
+                code: str | None = None, ref: str | None = None, worktree: str | None = None) -> dict:
     c = {"id": ulid(), "path": path, "line": line, "side": side, "text": text.strip(), "code": code,
-         "ref": ref, "status": "open", "created": time.time()}
+         "ref": ref, "worktree": worktree, "status": "open", "created": time.time()}
     comments = load_comments(project)
     comments.append(c)
     _save(project, comments)

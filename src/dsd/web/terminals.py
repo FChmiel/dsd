@@ -78,10 +78,13 @@ class Terminal:
     buffer: bytearray = field(default_factory=bytearray)
     listeners: set = field(default_factory=set)
     exited: bool = False
+    worktree: str | None = None  # None = main checkout
+    branch: str | None = None
 
     def info(self) -> dict:
         return {"id": self.id, "project_id": self.project_id, "title": self.title, "kind": self.kind,
-                "cwd": self.cwd, "created": self.created, "exited": self.exited, "pid": self.proc.pid}
+                "cwd": self.cwd, "created": self.created, "exited": self.exited, "pid": self.proc.pid,
+                "worktree": self.worktree, "branch": self.branch}
 
 
 class TerminalManager:
@@ -92,13 +95,16 @@ class TerminalManager:
         return [t.info() for t in self.terms.values() if project_id is None or t.project_id == project_id]
 
     def create(self, project_id: str, cwd: str, kind: str = "shell", title: str | None = None,
-               command: str | None = None, env: dict | None = None) -> Terminal:
+               command: str | None = None, env: dict | None = None, worktree: str | None = None,
+               branch: str | None = None, setup: str | None = None) -> Terminal:
         shell = os.environ.get("SHELL", "/bin/zsh")
         master, slave = pty.openpty()
         _set_size(master, 32, 120)
         full_env = {**os.environ, **(env or {}), "TERM": "xterm-256color", "COLORTERM": "truecolor",
                     "DSD_PROJECT_ROOT": cwd}
         full_env.pop("DSD_RUN_DIR", None)
+        if worktree:  # informational; dsd finds the worktree project via DSD_PROJECT_ROOT=cwd
+            full_env["DSD_WORKTREE"] = worktree
         proc = subprocess.Popen(
             [shell, "-l", "-i"], cwd=cwd, env=full_env, stdin=slave, stdout=slave, stderr=slave,
             start_new_session=True, close_fds=True,
@@ -106,11 +112,14 @@ class TerminalManager:
         os.close(slave)
         os.set_blocking(master, False)
         tid = ulid()
-        term = Terminal(tid, project_id, title or ("Claude" if kind == "claude" else "Shell"), kind, cwd, proc, master)
+        default_title = ("Claude" if kind == "claude" else "Shell") + (f" · {worktree}" if worktree else "")
+        term = Terminal(tid, project_id, title or default_title, kind, cwd, proc, master, worktree=worktree, branch=branch)
         self.terms[tid] = term
         loop = asyncio.get_running_loop()
         loop.add_reader(master, self._on_readable, term)
         startup = command or (resolve_claude_command() if kind == "claude" else None)
+        if setup:  # e.g. `uv sync` in a fresh worktree, then start the agent
+            startup = f"{setup} && {startup}" if startup else setup
         if startup:
             loop.call_later(0.4, self.write, tid, (startup + "\r").encode())
         return term

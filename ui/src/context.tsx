@@ -1,11 +1,15 @@
 import { createContext, useContext } from "react";
 import type { Project } from "./api";
+import type { SessionTarget } from "./components/SessionLauncher";
+import type { TermInfo } from "./components/TerminalPane";
 
 export interface AppCtx {
   project: Project;
   /** Paste text into the active agent terminal (starting Claude if none is open). */
-  sendToAgent: (text: string, opts?: { submit?: boolean; terminalId?: string }) => Promise<void>;
-  terminals: { id: string; title: string; kind: string }[];
+  sendToAgent: (text: string, opts?: { submit?: boolean; terminalId?: string; session?: SessionTarget }) => Promise<void>;
+  terminals: TermInfo[];
+  newSession: (kind: "claude" | "shell", target?: SessionTarget) => Promise<TermInfo>;
+  openLauncher: () => void;
   activeTerminal: string | null;
   toast: (msg: string) => void;
 }

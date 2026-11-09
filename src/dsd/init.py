@@ -64,6 +64,25 @@ def claude_block(project: Project, active: str = "_none_") -> str:
     return template("claude_block.md").format(name=project.name, active=active)
 
 
+def gitignore_body(project: Project) -> str:
+    return f"{project.runs_dir.rstrip('/')}/\n{INDEX_FILE}\n{INDEX_FILE}-*\n{DSD_DIR}/review.json\n{DSD_DIR}/worktrees.json"
+
+
+def refresh_gitignore(project: Project) -> bool:
+    """Bring an existing managed .gitignore block up to date (no-op if the block is absent)."""
+    path = project.root / ".gitignore"
+    if not path.exists():
+        return False
+    text = path.read_text()
+    if GITIGNORE_START not in text:
+        return False
+    new = upsert_block(text, GITIGNORE_START, GITIGNORE_END, gitignore_body(project))
+    if new != text:
+        path.write_text(new)
+        return True
+    return False
+
+
 def refresh_claude_md(project: Project, active_tasks: list[tuple[str, str]]) -> bool:
     """Rewrite the managed CLAUDE.md block with current active tasks. Only touches an existing block."""
     path = project.root / "CLAUDE.md"
@@ -114,8 +133,7 @@ def init_project(root: Path, name: str | None = None) -> InitReport:
     # 4. .gitignore managed block.
     gitignore = root / ".gitignore"
     existing = gitignore.read_text() if gitignore.exists() else ""
-    body = f"{project.runs_dir.rstrip('/')}/\n{INDEX_FILE}\n{INDEX_FILE}-*\n{DSD_DIR}/review.json"
-    _write(report, gitignore, upsert_block(existing, GITIGNORE_START, GITIGNORE_END, body))
+    _write(report, gitignore, upsert_block(existing, GITIGNORE_START, GITIGNORE_END, gitignore_body(project)))
 
     # 5. CLAUDE.md managed block. Keep the current block if present (it holds live state
     #    such as active tasks); only insert it when missing.

@@ -5,13 +5,16 @@ import { href, navigate, useRoute } from "../router";
 
 interface DLine { t: "add" | "del" | "ctx"; old: number | null; new: number | null; text: string }
 interface DFile { path: string; status: string; binary: boolean; truncated: boolean; additions: number; deletions: number; hunks: { header: string; lines: DLine[] }[] }
-interface Comment { id: string; path: string; line: number | null; side: string; text: string; code: string | null; ref: string | null; status: string }
+interface Comment { id: string; path: string; line: number | null; side: string; text: string; code: string | null; ref: string | null; worktree?: string | null; status: string }
 
 export function Changes() {
   const { project, terminals, activeTerminal, toast } = useApp();
   const route = useRoute();
   const ref = route.query.get("ref");
-  const changes = useApi<{ repo: boolean; files: DFile[]; subject?: string }>(`/api/p/${project.id}/changes${qs({ ref })}`, { poll: ref ? 0 : 4000 });
+  const wt = route.query.get("worktree");
+  const changes = useApi<{ repo: boolean; files: DFile[]; subject?: string; branch?: string; base?: string }>(
+    `/api/p/${project.id}/changes${qs({ ref, worktree: wt })}`, { poll: ref ? 0 : 4000 });
+  const wts = useApi<any[]>(`/api/p/${project.id}/worktrees`, { poll: 10000 });
   const commits = useApi<any[]>(`/api/p/${project.id}/commits`, { poll: 15000 });
   const comments = useApi<Comment[]>(`/api/p/${project.id}/comments`, { poll: 4000 });
   const [draft, setDraft] = useState<{ path: string; line: number | null; side: string; code: string } | null>(null);
@@ -21,24 +24,27 @@ export function Changes() {
   const fileRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   useEffect(() => {
-    if (!target || !terminals.some((t) => t.id === target)) setTarget(activeTerminal ?? terminals.find((t) => t.kind === "claude")?.id ?? "");
-  }, [terminals, activeTerminal, target]);
+    // default the target to a session running in the checkout under review (Claude first)
+    const here = terminals.filter((t) => !t.exited && (t.worktree ?? null) === (ref ? null : wt ?? null));
+    const pick = here.find((t) => t.kind === "claude") ?? here[0] ?? terminals.find((t) => t.kind === "claude") ?? terminals[0];
+    setTarget((cur) => (cur && here.some((t) => t.id === cur) ? cur : pick?.id ?? ""));
+  }, [terminals, wt, ref]);
 
   const files = changes.data?.files ?? [];
-  const allComments = comments.data ?? [];
+  const allComments = (comments.data ?? []).filter((c) => (c.worktree ?? null) === (ref ? null : wt ?? null));
   const open = allComments.filter((c) => c.status === "open");
   const visibleComments = allComments.filter((c) => showResolved || c.status !== "resolved");
 
   const saveComment = async (text: string) => {
     if (!draft || !text.trim()) return;
-    await post(`/api/p/${project.id}/comments`, { ...draft, text, ref });
+    await post(`/api/p/${project.id}/comments`, { ...draft, text, ref, worktree: ref ? null : wt });
     setDraft(null);
     comments.reload();
   };
 
   const send = async () => {
     if (!target) { toast("Open a Claude terminal in the agent pane first"); return; }
-    const r = await post<{ sent: number }>(`/api/p/${project.id}/comments/send`, { terminal_id: target, submit });
+    const r = await post<{ sent: number }>(`/api/p/${project.id}/comments/send`, { terminal_id: target, submit, ids: open.map((c) => c.id) });
     toast(`Sent ${r.sent} comment${r.sent > 1 ? "s" : ""} to ${terminals.find((t) => t.id === target)?.title ?? "agent"}${submit ? "" : " — press Enter there to submit"}`);
     comments.reload();
   };
@@ -48,10 +54,22 @@ export function Changes() {
       <div className="split">
         <div className="pane-l">
           <div style={{ padding: "10px 10px 6px" }}>
-            <select className="input" style={{ width: "100%" }} value={ref ?? ""}
-              onChange={(e) => navigate(`${href(project.id, "changes")}${e.target.value ? `?ref=${e.target.value}` : ""}`)}>
-              <option value="">Working tree (uncommitted)</option>
-              {(commits.data ?? []).map((c) => <option key={c.sha} value={c.short}>{c.short} · {c.subject.slice(0, 50)}</option>)}
+            <select className="input" style={{ width: "100%" }} value={ref ? `ref:${ref}` : wt ? `wt:${wt}` : ""}
+              onChange={(e) => {
+                const v = e.target.value;
+                navigate(`${href(project.id, "changes")}${v.startsWith("ref:") ? `?ref=${v.slice(4)}` : v.startsWith("wt:") ? `?worktree=${encodeURIComponent(v.slice(3))}` : ""}`);
+              }}>
+              <option value="">Main checkout (uncommitted)</option>
+              {(wts.data ?? []).filter((w) => !w.is_main).length > 0 && (
+                <optgroup label="Worktrees (all changes vs base)">
+                  {(wts.data ?? []).filter((w) => !w.is_main).map((w) => (
+                    <option key={w.name} value={`wt:${w.name}`}>⎇ {w.name}{w.ahead ? ` ↑${w.ahead}` : ""}{w.dirty ? ` · ${w.dirty} changed` : ""}</option>
+                  ))}
+                </optgroup>
+              )}
+              <optgroup label="Commits on main">
+                {(commits.data ?? []).map((c) => <option key={c.sha} value={`ref:${c.short}`}>{c.short} · {c.subject.slice(0, 50)}</option>)}
+              </optgroup>
             </select>
           </div>
           <div className="tree file-list">
@@ -72,7 +90,8 @@ export function Changes() {
         </div>
         <div className="pane-r">
           <div className="doc-head">
-            <b>{ref ? `Commit ${ref}` : "Uncommitted changes"}</b>
+            <b>{ref ? `Commit ${ref}` : wt ? `⎇ ${wt}` : "Uncommitted changes"}</b>
+            {wt && changes.data?.branch && <span className="muted mono" style={{ fontSize: 12 }}>{changes.data.branch} vs {changes.data.base}</span>}
             {changes.data?.subject && <span className="muted">{changes.data.subject.replace(/^\S+\s/, "")}</span>}
             <span className="muted">{files.length} file{files.length === 1 ? "" : "s"}</span>
             <span className="spacer" />
@@ -82,7 +101,7 @@ export function Changes() {
             <span className="pill running">{open.length} open</span>
             <select className="input" value={target} onChange={(e) => setTarget(e.target.value)} style={{ maxWidth: 160 }}>
               {terminals.length === 0 && <option value="">no terminal open</option>}
-              {terminals.map((t) => <option key={t.id} value={t.id}>{t.title}</option>)}
+              {terminals.map((t) => <option key={t.id} value={t.id}>{t.kind === "claude" ? "Claude" : "Shell"} · {t.worktree ?? "main"}</option>)}
             </select>
             <label className="muted" style={{ display: "flex", gap: 5, alignItems: "center", fontSize: 12 }} title="Press Enter in the terminal automatically">
               <input type="checkbox" checked={submit} onChange={(e) => setSubmit(e.target.checked)} /> submit

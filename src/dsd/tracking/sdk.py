@@ -212,7 +212,7 @@ def create_bundle(
     benchmark: str | None = None, task: str | None = None, params: dict | None = None,
     info: dict | None = None, tags: list[str] | None = None, datasets: list[dict] | None = None,
     command: list[str] | None = None, backend: str = "local", external_id: str | None = None,
-    status: str = "running", pid: int | None = None,
+    status: str = "running", pid: int | None = None, worktree: str | None = None,
 ) -> Bundle:
     run_id = ulid()
     started = now_iso()
@@ -234,6 +234,7 @@ def create_bundle(
         "params": to_jsonable(params or {}),
         "info": to_jsonable(info or {}),
         "datasets": list(datasets or []),
+        "worktree": worktree,
     })
     try:
         g = git_info(root, diff_out=bundle.capture_dir / "git.diff")
@@ -270,6 +271,7 @@ def start_run(
     bundle = create_bundle(
         runs_dir, root, project_id, name=name, benchmark=benchmark, task=task, params=params,
         info=info, tags=tags, datasets=datasets, backend=backend, external_id=external_id,
+        worktree=project.root.name if project is not None and project.is_worktree else None,
     )
     r = Run(bundle, owned=True)
     _active.append(r)
