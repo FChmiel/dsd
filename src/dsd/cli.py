@@ -52,6 +52,14 @@ def init(
 
 
 @app.command()
+def mcp() -> None:
+    """Run the dsd MCP server on stdio (Claude Code starts this via .mcp.json)."""
+    from .mcp_server import main
+
+    main()
+
+
+@app.command()
 def info() -> None:
     """Show the current project."""
     p = _project()
@@ -532,6 +540,74 @@ def bench_board(
             t.add_row(str(row["rank"] or ""), f"{row['run']['name']} [dim]{short(row['run']['id'])}[/]",
                       *[_fmt_num(row["metrics"].get(k)) for k in keys])
     console.print(t)
+
+
+backup_app = typer.Typer(help="Back up docs (and optionally runs). Run with no subcommand to snapshot now.",
+                         invoke_without_command=True)
+app.add_typer(backup_app, name="backup")
+
+
+@backup_app.callback()
+def backup_now(ctx: typer.Context, target: str = typer.Option(None, "--target")) -> None:
+    """Snapshot to every configured target (or just --target)."""
+    if ctx.invoked_subcommand:
+        return
+    from . import backup as bk
+
+    p = _project()
+    tgts = bk.targets(p)
+    if not tgts:
+        err.print("No backup target configured. Add one:  dsd backup add-local ~/path/to/backups")
+        raise typer.Exit(1)
+    for t, cfg in zip(tgts, p.backup):
+        if target and t.name != target:
+            continue
+        res = t.push(p, bk.include_paths(p, cfg))
+        console.print(f"[green]{t.name}[/] snapshot {res.snapshot}: {res.files} files "
+                      f"({res.copied} copied, {res.linked} unchanged) → {res.location}")
+
+
+@backup_app.command("add-local")
+def backup_add_local(path: str, name: str = typer.Option("local", "--name"),
+                     include_runs: bool = typer.Option(False, "--include-runs")) -> None:
+    """Add a local snapshot target (e.g. a folder in iCloud Drive or Dropbox)."""
+    from . import backup as bk
+
+    entry = bk.add_local_target(_project(), path, name, include_runs)
+    console.print(f"[green]added[/] backup target {entry}")
+
+
+@backup_app.command("ls")
+def backup_ls() -> None:
+    """List snapshots per target."""
+    from . import backup as bk
+
+    p = _project()
+    for t in bk.targets(p):
+        snaps = t.list_snapshots(p)
+        console.print(f"[bold]{t.name}[/] ({len(snaps)} snapshots)")
+        for s in snaps:
+            console.print(f"  {s.name}  {s.files} files")
+
+
+@backup_app.command("restore")
+def backup_restore(snapshot: str, to: Path = typer.Option(..., "--to", help="Destination folder (never restores in place)."),
+                   target: str = typer.Option(None, "--target")) -> None:
+    """Restore a snapshot into a folder."""
+    from . import backup as bk
+
+    p = _project()
+    for t in bk.targets(p):
+        if target and t.name != target:
+            continue
+        try:
+            n = t.restore(p, snapshot, to)
+        except FileNotFoundError:
+            continue
+        console.print(f"[green]restored[/] {n} files to {to}")
+        return
+    err.print(f"[red]snapshot {snapshot} not found[/red]")
+    raise typer.Exit(1)
 
 
 @app.command("exec", context_settings={"allow_extra_args": True, "ignore_unknown_options": True})

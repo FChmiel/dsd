@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from importlib.resources import files
 from pathlib import Path
@@ -124,6 +125,31 @@ def init_project(root: Path, name: str | None = None) -> InitReport:
         report.add("unchanged", claude_md)
     else:
         _write(report, claude_md, upsert_block(existing, CLAUDE_START, CLAUDE_END, claude_block(project)))
+
+    # 6. .mcp.json: add the dsd server, preserving any other servers.
+    mcp_path = root / ".mcp.json"
+    try:
+        mcp = json.loads(mcp_path.read_text()) if mcp_path.exists() else {}
+    except json.JSONDecodeError:
+        mcp = None  # don't clobber a file we can't parse
+    if mcp is not None:
+        servers = mcp.setdefault("mcpServers", {})
+        if "dsd" not in servers:
+            servers["dsd"] = {"command": "dsd", "args": ["mcp"]}
+            _write(report, mcp_path, json.dumps(mcp, indent=2) + "\n")
+        else:
+            report.add("unchanged", mcp_path)
+
+    # 7. Claude Code skills: install missing ones; never overwrite user edits.
+    skills_src = files("dsd.templates").joinpath("skills")
+    for skill in sorted(skills_src.iterdir(), key=lambda s: s.name):
+        if not skill.is_dir():
+            continue
+        dest = root / ".claude" / "skills" / skill.name / "SKILL.md"
+        if dest.exists():
+            report.add("unchanged", dest)
+        else:
+            _write(report, dest, skill.joinpath("SKILL.md").read_text())
 
     return report
 
