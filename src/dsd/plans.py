@@ -404,3 +404,38 @@ def check(project: Project) -> list[str]:
         if plan.slug != MAIN and f"({plan.slug}.md)" not in main_text and plan.meta.get("parent", MAIN) == MAIN:
             problems.append(f"Sub-plan '{plan.slug}' is not linked from the central plan")
     return problems
+
+
+def set_attr(plan: Plan, t: Task, key: str, value: str | None) -> None:
+    """Set (or remove, with value=None) an @key:value attribute on a task line, in place."""
+    ln = plan.lines[t.line]
+    body = ln.rstrip("\r\n")
+    ending = ln[len(body):]
+    body = re.sub(rf"\s+@{re.escape(key)}:\S+", "", body)
+    if value:
+        body = f"{body} @{key}:{value}"
+    plan.lines[t.line] = body + ending
+    if value:
+        t.attrs[key] = value
+    else:
+        t.attrs.pop(key, None)
+
+
+def set_title(plan: Plan, t: Task, title: str) -> None:
+    """Replace a task's title, keeping its id, tags and attributes."""
+    ln = plan.lines[t.line]
+    body = ln.rstrip("\r\n")
+    ending = ln[len(body):]
+    m = TASK_RE.match(ln)
+    if not m:
+        raise PlanError(f"{t.id} is not a task line")
+    prefix = body[: m.start("rest")] if m.group("rest") else body + " "
+    extras = [f"#{g}" for g in t.tags] + [f"@{k}:{v}" for k, v in t.attrs.items()]
+    parts = ([t.id] if t.id else []) + [title.strip()] + extras
+    plan.lines[t.line] = prefix + " ".join(parts) + ending
+    t.title = title.strip()
+
+
+def delete_task(plan: Plan, t: Task) -> None:
+    """Remove a task and its notes/children."""
+    del plan.lines[t.line:_block_end(plan, t)]

@@ -87,6 +87,44 @@ def create_app(initial: list[Path] | None = None) -> FastAPI:
         except (RuntimeError, OSError) as e:
             raise HTTPException(400, str(e))
 
+    # ------------------------------------------------------------ home (cross-project)
+    @app.get("/api/home")
+    async def home_dashboard():
+        from .. import home
+
+        by_project: dict[str, list[dict]] = {}
+        for t in terms.list():
+            by_project.setdefault(t["project_id"], []).append(t)
+        return await asyncio.to_thread(home.dashboard, by_project)
+
+    @app.get("/api/todos")
+    def todos_list():
+        from .. import home
+
+        return home.list_todos()
+
+    @app.post("/api/todos")
+    def todos_add(text: str = Body(...), due: str | None = Body(None), project: str | None = Body(None)):
+        from .. import home
+
+        if not text.strip():
+            raise HTTPException(400, "empty to-do")
+        return home.add_todo(text, due, project)
+
+    @app.patch("/api/todos/{task_id}")
+    def todos_update(task_id: str, status: str | None = Body(None), due: str | None = Body("__keep__"),
+                     title: str | None = Body(None), project: str | None = Body("__keep__")):
+        from .. import home
+
+        return guard(home.update_todo, task_id, status, due, title, project)
+
+    @app.delete("/api/todos/{task_id}")
+    def todos_delete(task_id: str):
+        from .. import home
+
+        guard(home.delete_todo, task_id)
+        return {"ok": True}
+
     @app.get("/api/projects")
     def projects_list():
         return [project_json(p) for p in registry.projects()]

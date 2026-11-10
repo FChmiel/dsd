@@ -14,10 +14,11 @@ import { Benchmarks } from "./views/Benchmarks";
 import { Changes } from "./views/Changes";
 import { Worktrees } from "./views/Worktrees";
 import { loadSessionDefault, type SessionTarget } from "./components/SessionLauncher";
-import { inApp, pickFolder } from "./native";
+import { CliCard } from "./components/CliCard";
+import { HomePage } from "./views/Home";
 
 const NAV = [
-  { view: "overview", label: "Overview", icon: "home" },
+  { view: "overview", label: "Overview", icon: "grid" },
   { view: "plans", label: "Plans", icon: "list" },
   { view: "docs", label: "Docs", icon: "doc" },
   { view: "runs", label: "Runs", icon: "flask" },
@@ -43,12 +44,8 @@ export default function App() {
   const projects = useApi<Project[]>("/api/projects");
   const project = projects.data?.find((p) => p.id === route.pid) ?? null;
 
-  useEffect(() => {
-    if (route.pid === null && projects.data?.length === 1) navigate(href(projects.data[0].id, "overview"), true);
-  }, [route.pid, projects.data]);
-
   if (!route.pid || (projects.data && !project)) {
-    return <Home projects={projects.data ?? []} reload={projects.reload} missing={!!route.pid} />;
+    return <HomePage projects={projects.data ?? []} reloadProjects={projects.reload} />;
   }
   if (!project) return <div className="empty">Loading…</div>;
   return <Workspace key={project.id} project={project} projects={projects.data!} />;
@@ -197,7 +194,10 @@ function Workspace({ project, projects }: { project: Project; projects: Project[
     <Ctx.Provider value={ctx}>
       <div className="app" style={{ gridTemplateColumns: `216px minmax(0,1fr) ${paneOpen ? paneWidth : 0}px` }}>
         <aside className="sidebar">
-          <div className="brand"><span className="logo">ds</span> dsd</div>
+          <a className="brand" {...linkProps("/")} style={{ color: "inherit", textDecoration: "none" }}><span className="logo">ds</span> dsd</a>
+          <nav className="nav" style={{ paddingBottom: 6 }}>
+            <a {...linkProps("/")}><Icon name="home" /> Home</a>
+          </nav>
           <ProjectSwitcher current={project} projects={projects} />
           <nav className="nav">
             {NAV.map((n) => {
@@ -276,87 +276,9 @@ function ProjectSwitcher({ current, projects }: { current: Project; projects: Pr
             </button>
           ))}
           <div style={{ borderTop: "1px solid var(--border)", margin: "4px 0" }} />
-          <button className="menu-item" onClick={() => { setOpen(false); navigate("/"); }}>+ Add project…</button>
+          <button className="menu-item" onClick={() => { setOpen(false); navigate("/#add-project"); }}>+ Add project…</button>
         </div>
       )}
-    </div>
-  );
-}
-
-function Home({ projects, reload, missing }: { projects: Project[]; reload: () => void; missing: boolean }) {
-  const [path, setPath] = useState("");
-  const [err, setErr] = useState<string | null>(null);
-  const [needsInit, setNeedsInit] = useState(false);
-  const add = async (init = false, override?: string) => {
-    setErr(null);
-    try {
-      const p = await post<Project>("/api/projects", { path: override ?? path, init });
-      reload();
-      navigate(href(p.id, "overview"));
-    } catch (e: any) {
-      if (e.status === 409) setNeedsInit(true);
-      setErr(e.message);
-    }
-  };
-  return (
-    <div className="home">
-      <h1><span className="logo" style={{ display: "inline-grid", placeItems: "center", width: 30, height: 30, borderRadius: 8, background: "var(--accent)", color: "white", font: "700 13px var(--mono)", marginRight: 10, verticalAlign: -6 }}>ds</span>dsd</h1>
-      <p className="dim">Plans, docs and experiments for agentic data science.</p>
-      {missing && <div className="error-box">That project isn't registered on this machine.</div>}
-      <div className="card">
-        <div className="card-head">Projects</div>
-        {projects.length === 0 && <div className="empty">No projects yet. Run <code>dsd init</code> in a repo, or add one below.</div>}
-        {projects.map((p) => (
-          <a key={p.id} className="menu-item" style={{ padding: "10px 14px" }} {...linkProps(href(p.id, "overview"))}>
-            <b>{p.name}</b> <span className="muted mono" style={{ fontSize: 11.5, marginLeft: 8 }}>{p.root}</span>
-          </a>
-        ))}
-      </div>
-      <div className="card">
-        <div className="card-head">Add a project</div>
-        <div className="card-body" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <input className="input" style={{ flex: 1, minWidth: 240 }} placeholder="/path/to/repo" value={path}
-            onChange={(e) => { setPath(e.target.value); setNeedsInit(false); }} onKeyDown={(e) => e.key === "Enter" && add()} />
-          {inApp && <button className="btn" onClick={async () => {
-            const dir = await pickFolder();
-            if (dir) { setPath(dir); setNeedsInit(false); add(false, dir); }
-          }}>Choose folder…</button>}
-          <button className="btn primary" onClick={() => add()}>Open</button>
-          {needsInit && <button className="btn" onClick={() => add(true)}>Set up dsd here</button>}
-        </div>
-        {err && <div className="card-body"><div className="error-box">{err}</div></div>}
-      </div>
-      <CliCard />
-    </div>
-  );
-}
-
-/** Packaged app only: offer to link the bundled `dsd` CLI onto PATH if it isn't there. */
-export function CliCard({ compact }: { compact?: boolean }) {
-  const cli = useApi<any>(inApp ? "/api/cli" : null);
-  const [msg, setMsg] = useState<string | null>(null);
-  if (!inApp || !cli.data?.frozen || cli.data.on_path) return null;
-  const install = async () => {
-    try {
-      const r = await post<any>("/api/cli/install", {});
-      setMsg(r.on_path ? `Installed: ${r.linked}` : `Linked ${r.linked}. ${r.hint}`);
-      cli.reload();
-    } catch (e: any) { setMsg(e.message); }
-  };
-  if (compact) {
-    return <button className="btn sm ghost" title="Link the bundled dsd command into ~/.local/bin so Claude Code outside the app can use it" onClick={install}>Install dsd command</button>;
-  }
-  return (
-    <div className="card">
-      <div className="card-head">Command-line tool</div>
-      <div className="card-body">
-        <p className="dim" style={{ marginTop: 0 }}>
-          Sessions inside the app already have <code>dsd</code>. To use <code>dsd exec</code>, <code>dsd wt</code> and the MCP server from
-          your own terminal or editor, link the bundled command into <code>~/.local/bin</code>.
-        </p>
-        <button className="btn" onClick={install}>Install dsd command</button>
-        {msg && <div className="muted" style={{ marginTop: 8 }}>{msg}</div>}
-      </div>
     </div>
   );
 }

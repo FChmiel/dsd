@@ -653,6 +653,92 @@ def backup_restore(snapshot: str, to: Path = typer.Option(..., "--to", help="Des
     raise typer.Exit(1)
 
 
+todo_app = typer.Typer(no_args_is_help=True, help="Personal to-dos on your dsd Home (cross-project).")
+app.add_typer(todo_app, name="todo")
+
+
+def _print_todo(t: dict) -> None:
+    from datetime import date as _date
+
+    mark = {"todo": "○", "doing": "◐", "done": "●", "blocked": "✕", "dropped": "–"}[t["status"]]
+    due = t.get("due")
+    style = "red" if due and due < _date.today().isoformat() and t["status"] not in ("done", "dropped") else "cyan"
+    due_s = f" [{style}]{due}[/]" if due else ""
+    proj = f" [magenta]#{t['project']}[/]" if t.get("project") else ""
+    src = f" [dim]({t['project']} {t['id']})[/]" if t.get("source") == "project" else ""
+    console.print(f"{mark} [dim]{t['id']:>5}[/] {t['title']}{due_s}{proj if not src else ''}{src}")
+
+
+@todo_app.command("add")
+def todo_add(text: list[str] = typer.Argument(..., help='e.g. Send David the numbers tomorrow #churn-model')) -> None:
+    """Add a to-do; dates ('tomorrow', 'fri', '11/14') and #project in the text are understood."""
+    from . import home
+
+    _print_todo(home.add_todo(" ".join(text)))
+
+
+@todo_app.command("ls")
+def todo_ls(json: bool = typer.Option(False, "--json")) -> None:
+    """List open to-dos (and ones completed today)."""
+    from . import home
+
+    ts = home.list_todos()
+    if json:
+        return _emit_json(ts)
+    for t in sorted(ts, key=lambda t: (t["status"] in ("done", "dropped"), t["due"] or "9999")):
+        _print_todo(t)
+
+
+@todo_app.command("done")
+def todo_done(task_id: str) -> None:
+    """Mark a to-do done."""
+    from . import home
+
+    _print_todo(_guard(home.update_todo, plans.normalize_id(task_id), "done"))
+
+
+@todo_app.command("move")
+def todo_move(task_id: str, when: list[str] = typer.Argument(..., help="today, tomorrow, fri, 2026-11-20, none")) -> None:
+    """Reschedule a to-do."""
+    from . import home
+
+    w = " ".join(when)
+    if w.strip().lower() in ("none", "someday", "-"):
+        due = None
+    else:
+        _, d = home.parse_due(w)
+        if d is None:
+            err.print(f"[red]Couldn't understand '{w}' as a date[/red]")
+            raise typer.Exit(1)
+        due = d.isoformat()
+    _print_todo(_guard(home.update_todo, plans.normalize_id(task_id), None, due))
+
+
+@app.command()
+def today() -> None:
+    """Your day across projects: overdue, today, and what needs attention."""
+    from datetime import date as _date, timedelta as _td
+
+    from . import home
+
+    d = home.dashboard()
+    console.print(f"[bold]{_date.today():%A %d %B}[/]  [dim]{d['summary']}[/]")
+    t0, t1 = d["today"], (_date.today() + _td(days=1)).isoformat()
+    groups = [("Overdue", lambda t: t["due"] and t["due"] < t0), ("Today", lambda t: t["due"] == t0),
+              ("Tomorrow", lambda t: t["due"] == t1)]
+    open_items = [t for t in d["agenda"] if t["status"] in plans.OPEN_STATUSES]
+    for label, pred in groups:
+        items = [t for t in open_items if pred(t)]
+        if items:
+            console.print(f"\n[bold]{label}[/]")
+            for t in items:
+                _print_todo(t)
+    if d["attention"]:
+        console.print("\n[bold]Needs you[/]")
+        for a in d["attention"]:
+            console.print(f"  [yellow]•[/] [magenta]{a['project']}[/] {a['text']}")
+
+
 wt_app = typer.Typer(no_args_is_help=True, help="Git worktrees for parallel agent sessions (branches dsd/<name>).")
 app.add_typer(wt_app, name="wt")
 

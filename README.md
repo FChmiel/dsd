@@ -8,6 +8,26 @@ An agentic development platform for data scientists: project **plans and docs**,
 - **Agents:** `dsd init` registers an MCP server and installs five Claude Code skills: `/dsd-plan`, `/dsd-next-task`, `/dsd-run-experiment`, `/dsd-distill` and `/dsd-report`.
 - **App:** `dsd ui` serves the plans board, docs, runs, compare, leaderboards, diff review with comments you can send to an agent, and embedded Claude/shell terminals.
 
+## Home: your command centre
+
+The landing page pulls together everything across your projects:
+- **Agenda:** your personal to-dos plus any project plan task with a due date, grouped into Overdue, Today, the days of the coming week, Later and Someday.
+- **Needs you:** blocked tasks, worktrees ready to merge or left with uncommitted changes, failed runs and unsent review comments.
+- **Recent docs:** designs, decisions and reports edited across all projects.
+- **Project cards.**
+
+Quick add understands days and projects: `Send David the AUC numbers tomorrow #churn-model`. It recognises *today, tomorrow, yesterday, fri, next fri, next week, in 3 days, 11/24, 3 Dec, 2026-12-01*.
+
+To-dos live in plain markdown at `~/.dsd/home/docs/plans/main.md`. To give a project task a date, add `@due:2026-11-12` to it.
+
+```sh
+dsd today                                   # your day in the terminal
+dsd todo add Send David the numbers fri #churn-model
+dsd todo done T-3 ; dsd todo move T-4 next week
+```
+
+Claude can manage them too, from any project, with the MCP tools `todo_add`, `todo_list` and `todo_update` (e.g. "remind me to email Priya on Friday").
+
 ## Install
 
 **Mac app (Apple Silicon):** `brew install --cask OWNER/dsd/dsd`, or download the DMG from Releases. See [docs/distribution.md](docs/distribution.md) for how releases are built and published.

@@ -242,5 +242,31 @@ def review_resolve(comment_ids: list[str]) -> str:
     return f"resolved {len(comment_ids)} comment(s)"
 
 
+@tool
+def todo_add(text: str, due: str | None = None, project: str | None = None) -> dict:
+    """Add a personal to-do to the user's dsd Home (cross-project), e.g. 'Send David the AUC numbers'.
+    Dates in the text are understood ('tomorrow', 'fri', 'next week', '11/14'); or pass due as YYYY-MM-DD.
+    project: a registered dsd project name (defaults to none; '#name' in the text also works)."""
+    from . import home
+
+    return home.add_todo(text, due, project)
+
+
+@tool
+def todo_list() -> list[dict]:
+    """The user's personal to-dos from dsd Home (open ones plus those completed today), with due dates."""
+    from . import home
+
+    return home.list_todos()
+
+
+@tool
+def todo_update(task_id: str, status: str | None = None, due: str | None = None) -> dict:
+    """Update a Home to-do: status (todo/doing/done/dropped) and/or due date (YYYY-MM-DD, or 'none' to clear)."""
+    from . import home
+
+    return home.update_todo(task_id, status, "__keep__" if due is None else (None if due == "none" else due))
+
+
 def main() -> None:
     server.run("stdio")
