@@ -22,3 +22,11 @@ ui/node_modules/
 /app/node_modules/
 /app/src-tauri/target/
 /app/src-tauri/gen/
+
+# This repo dogfoods dsd locally; its own plans, docs and dsd wiring are not part of the product.
+/.dsd/
+/.mcp.json
+/.claude/
+/CLAUDE.md
+/docs/*
+!/docs/distribution.md

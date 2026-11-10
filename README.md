@@ -122,7 +122,7 @@ cd ui && npm install && npm run dev     # UI dev server on :5173, proxied to `ds
 cd ui && npm run build                  # builds into src/dsd/web/dist (served by `dsd ui`)
 ```
 
-Design docs: [requirements](docs/requirements.md) · [Phase 0 design](docs/design/phase0-headless-core.md) · [plan](docs/plans/main.md)
+Release and signing guide: [docs/distribution.md](docs/distribution.md)
 
 ### Not done yet
 - **Tauri desktop wrapper:** needs a Rust toolchain. The app is a local web UI so far, and Tauri will wrap the same UI.
