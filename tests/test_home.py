@@ -81,3 +81,14 @@ def test_home_api(setup):
         h = c.get("/api/home").json()
         assert h["summary"] and h["projects"][0]["name"] == "churn"
         assert c.delete(f"/api/todos/{t['id']}").status_code == 200
+
+
+def test_mcp_todo_tools(setup):
+    from dsd import mcp_server
+
+    t = mcp_server.todo_add("Email Priya fri #churn")
+    u = mcp_server.todo_update(t["id"], title="Email Priya the feature list", due="none", project="none")
+    assert u["title"] == "Email Priya the feature list" and u["due"] is None and u["project"] is None
+    assert mcp_server.todo_update(t["id"], status="done")["status"] == "done"
+    assert mcp_server.todo_delete(t["id"]) == f"deleted {t['id']}"
+    assert mcp_server.todo_list() == []

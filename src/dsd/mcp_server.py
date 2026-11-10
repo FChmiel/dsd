@@ -261,11 +261,28 @@ def todo_list() -> list[dict]:
 
 
 @tool
-def todo_update(task_id: str, status: str | None = None, due: str | None = None) -> dict:
-    """Update a Home to-do: status (todo/doing/done/dropped) and/or due date (YYYY-MM-DD, or 'none' to clear)."""
+def todo_update(task_id: str, status: str | None = None, due: str | None = None, title: str | None = None,
+                project: str | None = None) -> dict:
+    """Edit a Home to-do. status: todo/doing/done/dropped. due: YYYY-MM-DD, or 'none' to clear.
+    title: new text. project: a registered dsd project name, or 'none' to clear. Omitted fields are unchanged."""
     from . import home
 
-    return home.update_todo(task_id, status, "__keep__" if due is None else (None if due == "none" else due))
+    keep = "__keep__"
+    return home.update_todo(
+        task_id, status,
+        keep if due is None else (None if due == "none" else due),
+        title,
+        keep if project is None else (None if project == "none" else project),
+    )
+
+
+@tool
+def todo_delete(task_id: str) -> str:
+    """Delete a Home to-do (prefer todo_update(status='done' or 'dropped') to keep history)."""
+    from . import home
+
+    home.delete_todo(task_id)
+    return f"deleted {task_id}"
 
 
 def main() -> None:
