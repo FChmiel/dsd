@@ -22,7 +22,7 @@ import warnings
 from pathlib import Path
 
 from ..ids import ulid
-from ..project import ProjectNotFound, find_project, load_project
+from ..project import PROJECT_ENV, ProjectNotFound, current_project, dsd_home
 from .bundle import Bundle, now_iso, to_jsonable
 from .capture import current_user, dataset, env_info, git_info, packages
 
@@ -30,7 +30,7 @@ ENV_RUN_DIR = "DSD_RUN_DIR"
 ENV_RUN_ID = "DSD_RUN_ID"
 ENV_TASK = "DSD_TASK"
 ENV_BENCHMARK = "DSD_BENCHMARK"
-ENV_PROJECT = "DSD_PROJECT_ROOT"
+ENV_PROJECT = PROJECT_ENV
 
 _active: list["Run"] = []
 
@@ -57,9 +57,8 @@ def _safe(fn):
 
 
 def _resolve_project():
-    root = os.environ.get(ENV_PROJECT)
     try:
-        return load_project(Path(root)) if root else find_project()
+        return current_project()
     except ProjectNotFound:
         return None
 
@@ -262,7 +261,7 @@ def start_run(
     project = _resolve_project()
     if project is None:
         root = Path.cwd()
-        runs_dir = root / ".dsd" / "runs"
+        runs_dir = dsd_home() / "runs"
         _warn(f"not inside a dsd project; writing run to {runs_dir} (run `dsd init` to set one up)")
         project_id = None
     else:

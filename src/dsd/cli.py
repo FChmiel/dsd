@@ -10,9 +10,9 @@ from rich.console import Console
 
 from . import __version__
 from . import plans
-from .init import init_project, refresh_claude_md
+from .init import init_project
 from .plans import PlanError, Task
-from .project import ProjectNotFound, find_project
+from .project import ProjectNotFound, current_project, find_project
 
 app = typer.Typer(no_args_is_help=True, add_completion=False, help="dsd: plans, docs and experiment tracking.")
 console = Console()
@@ -23,7 +23,7 @@ _STYLE = {"created": "green", "updated": "yellow", "unchanged": "dim"}
 
 def _project():
     try:
-        return find_project()
+        return current_project()
     except ProjectNotFound as e:
         err.print(f"[red]{e}[/red]")
         raise typer.Exit(1)
@@ -37,22 +37,26 @@ def version() -> None:
 
 @app.command()
 def init(
-    path: Path = typer.Argument(Path("."), help="Project root (default: current directory)."),
-    name: str = typer.Option(None, "--name", "-n", help="Project name (default: directory name)."),
+    path: Path = typer.Argument(Path("."), help="Repo (or any folder) the project is for (default: current directory)."),
+    name: str = typer.Option(None, "--name", "-n", help="Project name (default: repo or scope directory name)."),
+    scope: str = typer.Option(None, "--scope", "-s", help="Repo-relative subdirectory the project covers (default: the whole repo)."),
 ) -> None:
-    """Set up a dsd project here. Safe to re-run: it only adds what's missing."""
-    from . import registry
-
-    report = init_project(path, name=name)
-    registry.register(report.project.root)
+    """Start a dsd project for a repo. Its docs, plans and runs live in ~/.dsd/projects/<id>/; nothing is written to the repo."""
+    try:
+        report = init_project(path, name=name, scope=scope)
+    except ValueError as e:
+        err.print(f"[red]{e}[/red]")
+        raise typer.Exit(1)
     for action, rel in report.actions:
         if action != "unchanged":
             console.print(f"  [{_STYLE[action]}]{action:9}[/] {rel}")
     p = report.project
+    where = f"{p.repo}" + (f" (scope {p.scope})" if p.scope else "")
     if report.changed:
-        console.print(f"[bold]dsd project '{p.name}'[/] ready at {p.root}  (id {p.id})")
+        console.print(f"[bold]dsd project '{p.name}'[/] for {where}  (id {p.id})")
+        console.print(f"  data   {p.data_dir}")
     else:
-        console.print(f"dsd project '{p.name}' already up to date.")
+        console.print(f"dsd project '{p.name}' for {where} already up to date.")
 
 
 @app.command()
@@ -67,13 +71,10 @@ def ui(
 
     import uvicorn
 
-    from .project import load_project
     from .web.server import create_app
 
-    initial = []
     try:
-        proj = load_project(project_path.resolve()) if project_path else find_project()
-        initial.append(proj.root)
+        proj = find_project(project_path) if project_path else current_project()
     except ProjectNotFound:
         proj = None
     url = f"http://127.0.0.1:{port}/" + (f"p/{proj.id}" if proj else "")
@@ -91,12 +92,12 @@ def ui(
             os.kill(os.getpid(), signal.SIGTERM)  # graceful: uvicorn shutdown closes PTY sessions
 
         threading.Thread(target=watch_parent, args=(int(parent),), daemon=True).start()
-    uvicorn.run(create_app(initial), host="127.0.0.1", port=port, log_level="warning")
+    uvicorn.run(create_app(), host="127.0.0.1", port=port, log_level="warning")
 
 
 @app.command()
 def mcp() -> None:
-    """Run the dsd MCP server on stdio (Claude Code starts this via .mcp.json)."""
+    """Run the dsd MCP server on stdio (Claude Code starts this; register it with `dsd setup`)."""
     from .mcp_server import main
 
     main()
@@ -107,7 +108,10 @@ def info() -> None:
     """Show the current project."""
     p = _project()
     console.print(f"[bold]{p.name}[/]  id={p.id}")
-    console.print(f"  root   {p.root}")
+    console.print(f"  repo   {p.repo}" + (f"  [dim](scope {p.scope})[/]" if p.scope else ""))
+    if p.is_worktree:
+        console.print(f"  root   {p.root}  [dim](worktree)[/]")
+    console.print(f"  data   {p.data_dir}")
     console.print(f"  docs   {p.docs_path}")
     console.print(f"  runs   {p.runs_path}")
 
@@ -139,11 +143,6 @@ def _task_row(t: Task, show_plan: bool = False) -> str:
     return f"{pad}[{style}]{_STATUS_ICON[t.status]} {t.id or '—':>5}[/] {t.title} {extra}{where}".rstrip()
 
 
-def _sync_claude(p) -> None:
-    active = [(t.id, t.title) for t in plans.all_tasks(p) if t.status == "doing" and t.id]
-    refresh_claude_md(p, active)
-
-
 def _emit_json(data) -> None:
     import json as _json
 
@@ -173,7 +172,7 @@ def plan_show(slug: str = typer.Argument(plans.MAIN), all: bool = typer.Option(F
     """Show a plan's tasks (default: the central plan)."""
     p = _project()
     pl = _guard(plans.load_plan, p, slug)
-    console.print(f"[bold]{pl.title}[/]  [dim]{pl.path.relative_to(p.root)}[/]")
+    console.print(f"[bold]{pl.title}[/]  [dim]{pl.path}[/]")
     for t in pl.tasks:
         if all or t.status in plans.OPEN_STATUSES:
             console.print(_task_row(t))
@@ -184,7 +183,7 @@ def plan_new(slug: str, title: str = typer.Option(None, "--title", "-t"), parent
     """Create a sub-plan and link it from its parent plan."""
     p = _project()
     pl = _guard(plans.new_plan, p, slug, title, parent)
-    console.print(f"[green]created[/] {pl.path.relative_to(p.root)}  (linked from {parent}.md)")
+    console.print(f"[green]created[/] {pl.path}  (linked from {parent}.md)")
 
 
 @plan_app.command("fmt")
@@ -265,7 +264,6 @@ def _transition(task_id: str, status: str, note: str | None) -> None:
     if note:
         plans.append_note(pl, t, note)
     pl.save()
-    _sync_claude(p)
     console.print(_task_row(t, show_plan=True))
 
 
@@ -274,7 +272,7 @@ _NOTE = typer.Option(None, "--note", "-m", help="Append a note line under the ta
 
 @task_app.command("start")
 def task_start(task_id: str, note: str = _NOTE) -> None:
-    """Mark a task as doing (and show it as active in CLAUDE.md)."""
+    """Mark a task as doing."""
     _transition(task_id, "doing", note)
 
 
@@ -534,7 +532,7 @@ def bench_set(
     direction: str = typer.Option(None, "--direction", "-d", help="max or min"),
     description: str = typer.Option(None, "--description"),
 ) -> None:
-    """Configure a benchmark's ranking (stored in .dsd/benchmarks.toml)."""
+    """Configure a benchmark's ranking (stored in the project's benchmarks.toml)."""
     from .tracking.query import QueryError, set_bench_spec
 
     p = _project()

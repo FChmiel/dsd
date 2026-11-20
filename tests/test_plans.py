@@ -6,7 +6,6 @@ from typer.testing import CliRunner
 from dsd import plans
 from dsd.cli import app
 from dsd.init import init_project
-from dsd.project import load_project
 
 SAMPLE = """---
 title: Churn main plan
@@ -37,8 +36,7 @@ Some *prose* that   must survive.
 
 @pytest.fixture
 def project(tmp_path):
-    init_project(tmp_path, name="churn")
-    return load_project(tmp_path)
+    return init_project(tmp_path, name="churn").project
 
 
 def write_main(project, text: str) -> Path:
@@ -160,16 +158,15 @@ def test_normalize_id():
         plans.normalize_id("X-1")
 
 
-def test_cli_task_flow_updates_claude_md(project, monkeypatch):
+def test_cli_task_flow(project, monkeypatch):
     monkeypatch.chdir(project.root)
     r = CliRunner()
     assert r.invoke(app, ["task", "add", "Train baseline", "--tag", "exp"]).exit_code == 0
     res = r.invoke(app, ["task", "start", "2", "-m", "kicked off"])
     assert res.exit_code == 0, res.output
-    claude = (project.root / "CLAUDE.md").read_text()
-    assert "Active tasks: `T-2` Train baseline" in claude
+    assert "[/] T-2 Train baseline" in project.main_plan_path.read_text()
     assert r.invoke(app, ["task", "done", "T-2"]).exit_code == 0
-    assert "Active tasks: _none_" in (project.root / "CLAUDE.md").read_text()
+    assert list(project.root.iterdir()) == []
     res = r.invoke(app, ["task", "ls", "--status", "done", "--json"])
     assert '"T-2"' in res.output
     assert r.invoke(app, ["plan", "new", "eval"]).exit_code == 0

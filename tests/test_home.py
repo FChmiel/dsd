@@ -3,9 +3,8 @@ from datetime import date
 import pytest
 from fastapi.testclient import TestClient
 
-from dsd import home, registry
+from dsd import home
 from dsd.init import init_project
-from dsd.project import load_project
 from dsd.web.server import create_app
 
 TUE = date(2026, 11, 10)  # a Tuesday
@@ -43,9 +42,8 @@ def test_parse_quick_project_and_tags():
 @pytest.fixture
 def setup(tmp_path):
     root = tmp_path / "proj"
-    init_project(root, name="churn")
-    registry.register(root)
-    p = load_project(root)
+    root.mkdir()
+    p = init_project(root, name="churn").project
     (p.main_plan_path).write_text(p.main_plan_path.read_text()
                                   + "- [!] T-2 Waiting on data\n- [ ] T-3 Model card @due:2026-01-01\n")
     return p

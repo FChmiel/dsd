@@ -6,7 +6,6 @@ from fastapi.testclient import TestClient
 
 import dsd
 from dsd.init import init_project
-from dsd.project import load_project
 from dsd.web.server import create_app
 
 
@@ -16,7 +15,8 @@ def env(tmp_path, monkeypatch):
     root = tmp_path / "proj"
     root.mkdir()
     subprocess.run(["git", "init", "-q", "-b", "main"], cwd=root, check=True)
-    init_project(root, name="demo")
+    p = init_project(root, name="demo").project
+    (root / "README.md").write_text("demo\n")
     subprocess.run(["git", "add", "-A"], cwd=root, check=True)
     subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"], cwd=root, check=True)
     monkeypatch.setenv("DSD_PROJECT_ROOT", str(root))
@@ -27,8 +27,7 @@ def env(tmp_path, monkeypatch):
             r.log({"loss": 0.5}, step=1)
             r.log({"auc": 0.8 + s / 100})
             r.html("report.html", "<h1>report</h1>")
-    p = load_project(root)
-    with TestClient(create_app([root])) as client:  # one event loop for the whole test (PTY readers live on it)
+    with TestClient(create_app()) as client:  # one event loop for the whole test (PTY readers live on it)
         yield client, p
 
 
@@ -47,7 +46,7 @@ def test_tasks_api(env):
     assert t["id"] == "T-2"
     t = c.patch(f"/api/p/{p.id}/tasks/T-2", json={"status": "doing", "note": "go"}).json()
     assert t["status"] == "doing" and t["notes"] == ["→ go"]
-    assert "`T-2` Try lgbm" in (p.root / "CLAUDE.md").read_text()
+    assert "[/] T-2 Try lgbm" in p.main_plan_path.read_text()
     detail = c.get(f"/api/p/{p.id}/tasks/T-2").json()
     assert detail["runs"] == [] and detail["commits"] == []
     assert c.patch(f"/api/p/{p.id}/tasks/T-99", json={"status": "done"}).status_code == 400
@@ -84,12 +83,13 @@ def test_runs_api(env):
 def test_changes_and_comments(env):
     c, p = env
     (p.root / "train.py").write_text("print('hi')\nx = 1\n")
-    (p.root / "CLAUDE.md").write_text((p.root / "CLAUDE.md").read_text() + "\nextra line\n")
+    (p.root / "README.md").write_text((p.root / "README.md").read_text() + "\nextra line\n")
     ch = c.get(f"/api/p/{p.id}/changes").json()
     by_path = {f["path"]: f for f in ch["files"]}
     assert by_path["train.py"]["status"] == "added" and by_path["train.py"]["additions"] == 2
-    assert by_path["CLAUDE.md"]["status"] == "modified"
-    added = [ln for h in by_path["CLAUDE.md"]["hunks"] for ln in h["lines"] if ln["t"] == "add"]
+    assert set(by_path) == {"train.py", "README.md"}
+    assert by_path["README.md"]["status"] == "modified"
+    added = [ln for h in by_path["README.md"]["hunks"] for ln in h["lines"] if ln["t"] == "add"]
     assert added[-1]["text"] == "extra line"
     commits = c.get(f"/api/p/{p.id}/commits").json()
     assert commits[0]["subject"] == "init"
@@ -125,3 +125,15 @@ def test_terminal_roundtrip(env):
             seen += ws.receive_bytes()
         assert b"dsd-42" in seen
     c.delete(f"/api/terminals/{term['id']}")
+
+
+def test_add_project_starts_one_outside_the_repo(env, tmp_path):
+    c, _ = env
+    other = tmp_path / "other"
+    (other / "apps" / "x").mkdir(parents=True)
+    assert c.post("/api/projects", json={"path": str(other)}).status_code == 409
+    assert c.post("/api/projects", json={"path": str(other), "init": True, "scope": "nope"}).status_code == 400
+    p = c.post("/api/projects", json={"path": str(other), "init": True, "scope": "apps/x"}).json()
+    assert p["scope"] == "apps/x" and p["name"] == "x" and p["repo"] == str(other.resolve())
+    assert sorted(other.rglob("*")) == [other / "apps", other / "apps" / "x"]
+    assert c.post("/api/projects", json={"path": str(other / "apps" / "x")}).json()["id"] == p["id"]

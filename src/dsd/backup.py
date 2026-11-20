@@ -17,9 +17,9 @@ from typing import Protocol
 
 import tomli_w
 
-from .project import PROJECT_FILE, Project
+from .project import PROJECT_FILE, RUNS_DIR, Project
 
-DEFAULT_INCLUDE = ["docs", ".dsd/project.toml", ".dsd/benchmarks.toml"]
+DEFAULT_INCLUDE = ["docs", PROJECT_FILE, "benchmarks.toml"]
 
 
 @dataclass
@@ -77,12 +77,12 @@ class LocalTarget:
         tmp = root / f".{name}.partial"
         files = linked = copied = 0
         for rel in paths:
-            src = project.root / rel
+            src = project.data_dir / rel
             if not src.exists():
                 continue
             sources = [src] if src.is_file() else [f for f in src.rglob("*") if f.is_file()]
             for f in sources:
-                r = f.relative_to(project.root)
+                r = f.relative_to(project.data_dir)
                 dest = tmp / r
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 old = prev_dir / r if prev_dir else None
@@ -127,17 +127,14 @@ def targets(project: Project) -> list[BackupTarget]:
 
 
 def include_paths(project: Project, cfg: dict | None = None) -> list[str]:
-    inc = list((cfg or {}).get("include", DEFAULT_INCLUDE))
-    if project.docs_dir not in inc and "docs" in inc:
-        inc[inc.index("docs")] = project.docs_dir
-    return inc
+    return list((cfg or {}).get("include", DEFAULT_INCLUDE))
 
 
 def add_local_target(project: Project, path: str, name: str = "local", include_runs: bool = False) -> dict:
-    file = project.root / PROJECT_FILE
+    file = project.project_file
     data = tomllib.loads(file.read_text())
     entries = [b for b in data.get("backup", []) if b.get("name", "local") != name]
-    include = DEFAULT_INCLUDE + ([project.runs_dir] if include_runs else [])
+    include = DEFAULT_INCLUDE + ([RUNS_DIR] if include_runs else [])
     entry = {"name": name, "kind": "local", "path": path, "include": include}
     entries.append(entry)
     data["backup"] = entries

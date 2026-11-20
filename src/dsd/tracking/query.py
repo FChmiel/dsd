@@ -17,7 +17,7 @@ import tomli_w
 from ..project import Project
 from .index import Index
 
-BENCH_FILE = ".dsd/benchmarks.toml"
+BENCH_FILE = "benchmarks.toml"
 WHERE_RE = re.compile(r"^\s*([\w.\-/]+)\s*(>=|<=|!=|==|=|>|<|~)\s*(.*?)\s*$")
 
 
@@ -150,7 +150,7 @@ def compare(idx: Index, rids: list[str]) -> dict:
 # ---------------------------------------------------------------- benchmarks
 
 def load_bench_specs(project: Project) -> dict[str, dict]:
-    path = project.root / BENCH_FILE
+    path = project.data_dir / BENCH_FILE
     if not path.exists():
         return {}
     return tomllib.loads(path.read_text()).get("benchmark", {})
@@ -158,7 +158,7 @@ def load_bench_specs(project: Project) -> dict[str, dict]:
 
 def set_bench_spec(project: Project, name: str, primary: str | None = None, direction: str | None = None,
                    description: str | None = None) -> dict:
-    path = project.root / BENCH_FILE
+    path = project.data_dir / BENCH_FILE
     data = tomllib.loads(path.read_text()) if path.exists() else {}
     specs = data.setdefault("benchmark", {})
     spec = specs.setdefault(name, {})

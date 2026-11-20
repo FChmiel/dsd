@@ -7,7 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from . import registry
+from .project import dsd_home
 
 
 def frozen_executable() -> Path | None:
@@ -31,7 +31,7 @@ def ensure_app_shim() -> Path | None:
     exe = frozen_executable()
     if exe is None:
         return None
-    d = registry.home() / "bin"
+    d = dsd_home() / "bin"
     try:
         _link(d / "dsd", exe)
     except OSError:

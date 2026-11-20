@@ -1,13 +1,13 @@
 """dsd MCP server (stdio): plans, docs and experiment runs for agents.
 
-Registered in a project's .mcp.json by `dsd init`; Claude Code launches it from the project root.
+Registered user-wide by `dsd setup`; Claude Code launches it in the repo it is working in, and it finds
+that repo's dsd project (override with DSD_PROJECT_ROOT).
 Every tool is a thin wrapper over the same functions the CLI and the app use.
 """
 
 from __future__ import annotations
 
 import functools
-import os
 from pathlib import Path
 
 from mcp.server.mcpserver import MCPServer
@@ -15,8 +15,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from . import docs as docs_mod
 from . import plans
-from .init import refresh_claude_md
-from .project import ProjectNotFound, find_project, load_project
+from .project import ProjectNotFound, current_project
 from .tracking.index import Index
 from .tracking.query import QueryError, compare, leaderboard, list_runs, load_bench_specs
 
@@ -47,9 +46,8 @@ def tool(fn):
 
 
 def _project():
-    root = os.environ.get("DSD_PROJECT_ROOT")
     try:
-        return load_project(Path(root)) if root else find_project()
+        return current_project()
     except ProjectNotFound as e:
         raise ValueError(str(e)) from e
 
@@ -73,7 +71,8 @@ def project_overview() -> dict:
         recent = list_runs(idx, limit=10)
         benches = idx.benchmarks()
     return {
-        "project": {"name": p.name, "id": p.id, "root": str(p.root)},
+        "project": {"name": p.name, "id": p.id, "root": str(p.root), "repo": str(p.repo), "scope": p.scope,
+                    "data_dir": str(p.data_dir)},
         "plans": [{"slug": pl.slug, "title": pl.title, **pl.counts()} for pl in all_plans],
         "in_progress": [t.to_dict() for pl in all_plans for t in pl.tasks if t.status == "doing"],
         "benchmarks": benches,
@@ -116,8 +115,6 @@ def task_update(task_id: str, status: str | None = None, note: str | None = None
     if note:
         plans.append_note(pl, t, note)
     pl.save()
-    active = [(x.id, x.title) for x in plans.all_tasks(p) if x.status == "doing" and x.id]
-    refresh_claude_md(p, active)
     return plans.find_task(p, t.id)[1].to_dict()
 
 
@@ -144,7 +141,7 @@ def docs_write(path: str, content: str) -> str:
     """Create or overwrite a doc under docs/ (.md, .html, .txt, .yaml, .json, .csv). Prefer task_update for plan status."""
     p = _project()
     written = docs_mod.write_doc(p, path, content)
-    return f"wrote {written.relative_to(p.root)}"
+    return f"wrote {written}"
 
 
 @tool

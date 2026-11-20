@@ -15,10 +15,10 @@ from fastapi import Body, FastAPI, HTTPException, Query, WebSocket, WebSocketDis
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .. import __version__, plans, registry, review, worktrees
+from .. import __version__, plans, review, worktrees
 from .. import docs as docs_mod
-from ..init import init_project, refresh_claude_md
-from ..project import Project, ProjectNotFound, load_project
+from ..init import init_project
+from ..project import Project, ProjectNotFound, all_projects, find_project
 from ..tracking.index import Index
 from ..tracking.query import QueryError, compare, leaderboard, list_runs, load_bench_specs, set_bench_spec
 from .terminals import TerminalManager
@@ -26,7 +26,7 @@ from .terminals import TerminalManager
 DIST = Path(__file__).parent / "dist"
 
 
-def create_app(initial: list[Path] | None = None) -> FastAPI:
+def create_app() -> FastAPI:
     terms = TerminalManager()
 
     @contextlib.asynccontextmanager
@@ -38,12 +38,10 @@ def create_app(initial: list[Path] | None = None) -> FastAPI:
         terms.close_all()
 
     app = FastAPI(title="dsd", version=__version__, lifespan=lifespan)
-    for root in initial or []:
-        registry.register(root)
 
     # ------------------------------------------------------------ helpers
     def get_project(pid: str) -> Project:
-        for p in registry.projects():
+        for p in all_projects():
             if p.id == pid:
                 return p
         raise HTTPException(404, f"unknown project {pid}")
@@ -61,11 +59,9 @@ def create_app(initial: list[Path] | None = None) -> FastAPI:
         idx.sync()
         return idx
 
-    def sync_claude(p: Project) -> None:
-        refresh_claude_md(p, [(t.id, t.title) for t in plans.all_tasks(p) if t.status == "doing" and t.id])
-
     def project_json(p: Project) -> dict:
-        return {"id": p.id, "name": p.name, "root": str(p.root), "docs_dir": p.docs_dir}
+        return {"id": p.id, "name": p.name, "root": str(p.root), "repo": str(p.repo), "scope": p.scope,
+                "data_dir": str(p.data_dir), "docs_dir": p.docs_dir}
 
     # ------------------------------------------------------------ projects
     @app.get("/api/health")
@@ -127,26 +123,20 @@ def create_app(initial: list[Path] | None = None) -> FastAPI:
 
     @app.get("/api/projects")
     def projects_list():
-        return [project_json(p) for p in registry.projects()]
+        return [project_json(p) for p in all_projects()]
 
     @app.post("/api/projects")
-    def projects_add(path: str = Body(..., embed=True), init: bool = Body(False, embed=True)):
+    def projects_add(path: str = Body(..., embed=True), init: bool = Body(False, embed=True),
+                     name: str | None = Body(None, embed=True), scope: str | None = Body(None, embed=True)):
         root = Path(path).expanduser()
         if not root.is_dir():
             raise HTTPException(400, f"{root} is not a directory")
-        try:
-            p = load_project(root)
-        except ProjectNotFound:
-            if not init:
-                raise HTTPException(409, "not a dsd project (send init=true to set it up)")
-            p = init_project(root).project
-        registry.register(p.root)
-        return project_json(p)
-
-    @app.delete("/api/projects/{pid}")
-    def projects_remove(pid: str):
-        registry.unregister(get_project(pid).root)
-        return {"ok": True}
+        if not init:
+            try:
+                return project_json(find_project(root))
+            except ProjectNotFound:
+                raise HTTPException(409, "no dsd project for this folder yet (send init=true to start one)")
+        return project_json(guard(init_project, root, name, scope).project)
 
     @app.get("/api/p/{pid}/overview")
     def overview(pid: str):
@@ -220,7 +210,6 @@ def create_app(initial: list[Path] | None = None) -> FastAPI:
         if note:
             plans.append_note(pl, t, note)
         pl.save()
-        sync_claude(p)
         return plans.find_task(p, t.id)[1].to_dict()
 
     # ------------------------------------------------------------ docs
@@ -238,10 +227,7 @@ def create_app(initial: list[Path] | None = None) -> FastAPI:
 
     @app.put("/api/p/{pid}/docs/file")
     def docs_write(pid: str, path: str = Body(...), content: str = Body(...)):
-        p = get_project(pid)
-        guard(docs_mod.write_doc, p, path, content)
-        if path.startswith("plans/"):
-            sync_claude(p)
+        guard(docs_mod.write_doc, get_project(pid), path, content)
         return {"ok": True}
 
     @app.get("/api/p/{pid}/docs/raw/{path:path}")
@@ -403,8 +389,9 @@ def create_app(initial: list[Path] | None = None) -> FastAPI:
             wt = None
         if wt is None:
             branch = worktrees.current_branch(p.root) if review.is_repo(p.root) else None
-            return terms.create(p.id, str(p.root), kind=kind, command=command, title=title, branch=branch).info()
-        return terms.create(p.id, wt["path"], kind=kind, command=command, title=title, worktree=wt["name"],
+            return terms.create(p.id, str(p.work_dir), kind=kind, command=command, title=title, branch=branch).info()
+        cwd = Path(wt["path"]) / p.scope if p.scope and (Path(wt["path"]) / p.scope).is_dir() else Path(wt["path"])
+        return terms.create(p.id, str(cwd), kind=kind, command=command, title=title, worktree=wt["name"],
                             branch=wt["branch"], setup=setup).info()
 
     # ------------------------------------------------------------ worktrees

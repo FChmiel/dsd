@@ -80,7 +80,7 @@ def exec_command(
     )
     env = {
         **os.environ,
-        ENV_RUN_DIR: str(bundle.path), ENV_RUN_ID: bundle.id, ENV_PROJECT: str(project.root),
+        ENV_RUN_DIR: str(bundle.path), ENV_RUN_ID: bundle.id, ENV_PROJECT: str(project.work_dir),
         "PYTHONUNBUFFERED": os.environ.get("PYTHONUNBUFFERED", "1"),
     }
     if task:
