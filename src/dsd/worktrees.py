@@ -319,7 +319,9 @@ def create_worktree(project: Project, name: str | None = None, base: str | None 
     return get_worktree(project, name) | {"copied": copied}
 
 
-def remove_worktree(project: Project, name: str, force: bool = False, delete_branch: bool = False) -> dict:
+def remove_worktree(project: Project, name: str, force: bool = False, delete_branch: bool = False,
+                    park: bool = False) -> dict:
+    """Remove a worktree's checkout. With `park`, keep its metadata so restore_parked can recreate it."""
     wt = get_worktree(project, name)
     if wt["is_main"]:
         raise WorktreeError("Can't remove the main checkout")
@@ -341,9 +343,35 @@ def remove_worktree(project: Project, name: str, force: bool = False, delete_bra
             raise WorktreeError(f"Worktree removed, but branch {wt['branch']} was kept: {r.err.strip()}")
         branch_deleted = True
     meta = _load_meta(project)
-    meta.pop(wt["name"], None)
+    if park and wt["name"] in meta:
+        meta[wt["name"]]["parked"] = True
+    else:
+        meta.pop(wt["name"], None)
     _save_meta(project, meta)
     return {"removed": wt["name"], "branch_deleted": branch_deleted}
+
+
+def restore_parked(project: Project) -> tuple[list[str], list[str]]:
+    """Recreate parked worktrees from their branches: (restored, missing because the branch is gone)."""
+    main = _main(project)
+    meta = _load_meta(project)
+    have = set(branches(project))
+    restored, missing = [], []
+    for name, m in list(meta.items()):
+        if not m.get("parked"):
+            continue
+        if m.get("branch") not in have:
+            meta.pop(name)
+            missing.append(name)
+            continue
+        path = Path(m["path"])
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _git(main, "worktree", "add", str(path), m["branch"])
+        m["copied"] = _bootstrap(project, main, path)
+        m.pop("parked")
+        restored.append(name)
+    _save_meta(project, meta)
+    return restored, missing
 
 
 def commit_all(project: Project, name: str, message: str) -> dict:

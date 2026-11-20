@@ -54,6 +54,9 @@ def init_project(path: Path, name: str | None = None, scope: str | None = None) 
     scope = normalize_scope(repo, scope)
 
     same = repo_projects(repo, scope)
+    archived = next((p for p in repo_projects(repo, scope, include_archived=True) if p.archived and p.name == name), None)
+    if name and archived:
+        raise ValueError(f"The project '{name}' on {repo} is archived. Restore it with `dsd restore {name}`.")
     if name:
         project = next((p for p in same if p.name == name), None)
     else:

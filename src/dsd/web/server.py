@@ -9,13 +9,14 @@ import asyncio
 import contextlib
 import json
 import mimetypes
+import tomllib
 from pathlib import Path
 
 from fastapi import Body, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .. import __version__, plans, review, skills, worktrees
+from .. import __version__, archive, plans, review, skills, worktrees
 from .. import docs as docs_mod
 from ..init import init_project
 from ..project import Project, ProjectNotFound, all_projects, checkout_of, find_project
@@ -50,7 +51,7 @@ def create_app(current: Path | None = None) -> FastAPI:
         try:
             return fn(*a, **kw)
         except (plans.PlanError, docs_mod.DocsError, QueryError, ValueError, worktrees.WorktreeError,
-                skills.SkillError) as e:
+                skills.SkillError, archive.ArchiveError) as e:
             raise HTTPException(400, str(e))
         except (KeyError, FileNotFoundError) as e:
             raise HTTPException(404, str(e.args[0] if e.args else e))
@@ -183,6 +184,31 @@ def create_app(current: Path | None = None) -> FastAPI:
             except ProjectNotFound:
                 raise HTTPException(409, "no dsd project for this folder yet (send init=true to start one)")
         return project_json(guard(init_project, root, name, scope).project)
+
+    @app.get("/api/projects/archived")
+    def projects_archived():
+        return [{**project_json(p), "archived_at": tomllib.loads(p.project_file.read_text()).get("archived_at")}
+                for p in all_projects(include_archived=True) if p.archived]
+
+    @app.post("/api/projects/{pid}/restore")
+    def projects_restore(pid: str):
+        p = next((x for x in all_projects(include_archived=True) if x.id == pid and x.archived), None)
+        if p is None:
+            raise HTTPException(404, f"no archived project {pid}")
+        return guard(archive.restore_project, p)
+
+    @app.get("/api/p/{pid}/archive")
+    def project_archive_preview(pid: str):
+        return archive.preview(get_project(pid))
+
+    @app.post("/api/p/{pid}/archive")
+    def project_archive(pid: str, force: bool = Body(False, embed=True)):
+        p = get_project(pid)
+        if archive.preview(p)["blockers"] and not force:
+            guard(archive.archive_project, p, False)
+        for t in terms.list(pid):
+            terms.close(t["id"])
+        return guard(archive.archive_project, p, force)
 
     @app.get("/api/p/{pid}/overview")
     def overview(pid: str, worktree: str | None = None):

@@ -117,6 +117,12 @@ uv run python examples/make_demo.py      # builds .demo/churn-model (git repo, p
 dsd ui .demo/churn-model
 ```
 
+## Archiving a project
+
+Like archiving a pane in Pane: **Archive project** on a project's overview (or `dsd archive [name] --yes`) hides the project and removes the checkouts of the worktrees dsd made for it. Their branches stay, so committed work is safe; uncommitted changes block the archive unless you choose to discard them (`--force`). Adopted worktrees are only unlisted, never deleted. Docs, plans and runs are kept.
+
+Restore it from **Archived projects** on Home (or `dsd restore <name>`): the project comes back and its worktrees are recreated from their branches. `dsd projects -a` lists every project, archived ones included.
+
 ## Worktrees: one session per branch
 
 By default, **+ New session** in the agent pane starts Claude in a **new git worktree** on branch `dsd/<name>`, so parallel agents never edit the same checkout. The launcher can also attach to an existing worktree or use the main checkout. "Work on this in a worktree" on a plan task creates (or reuses) a worktree named after the task.

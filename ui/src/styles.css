@@ -176,6 +176,9 @@ input, select, textarea { font: inherit; color: var(--text); }
 .btn.ghost:hover { background: var(--muted-soft); color: var(--text); }
 .btn.sm { padding: 1px 7px; font-size: 12px; }
 .btn.danger { color: var(--bad); }
+.btn.danger:hover { border-color: var(--bad); }
+.btn.ghost.danger:hover { background: var(--bad-soft); color: var(--bad); }
+.btn svg { width: 14px; height: 14px; flex: none; }
 
 .input, select.input {
   border: 1px solid var(--border-strong); background: var(--panel); border-radius: 6px; padding: 4px 8px; outline: none;

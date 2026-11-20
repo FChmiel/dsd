@@ -84,6 +84,70 @@ def default_(name: str = typer.Argument(None, help="Project to make the default 
         console.print(f"{'★' if x.id == d.id else ' '} [bold]{x.name}[/]  [dim]{x.id}[/]")
 
 
+@app.command("projects")
+def projects_(archived: bool = typer.Option(False, "--archived", "-a", help="Also list archived projects.")) -> None:
+    """List dsd projects (name, repo, scope)."""
+    from .project import all_projects
+
+    for p in all_projects(include_archived=archived):
+        where = f"{p.repo}" + (f"/{p.scope}" if p.scope else "")
+        console.print(f"  [bold]{p.name:<24}[/] {where}" + ("  [yellow]archived[/]" if p.archived else ""))
+
+
+@app.command("archive")
+def archive_(
+    name: str = typer.Argument(None, help="Project name or id (default: the current project)."),
+    force: bool = typer.Option(False, "--force", "-f", help="Discard uncommitted changes in its worktrees."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Archive without asking."),
+) -> None:
+    """Archive a project: hide it and remove its dsd worktrees (branches, docs and runs are kept)."""
+    from . import archive as ar
+
+    p = _project() if not name else _any_project(name)
+    pv = ar.preview(p)
+    if not yes:
+        console.print(f"Archiving [bold]{p.name}[/] would:")
+        for w in pv["remove"]:
+            console.print(f"  remove worktree {w['name']} [dim](branch {w['branch']} is kept)[/]"
+                          + (f"  [red]{w['dirty']} uncommitted change(s)[/]" if w["dirty"] else ""))
+        for w in pv["unlist"]:
+            console.print(f"  stop listing adopted worktree {w['name']} [dim](not deleted)[/]")
+        console.print("  keep its docs, plans and runs. Re-run with --yes to archive.")
+        raise typer.Exit(1)
+    try:
+        r = ar.archive_project(p, force=force)
+    except ar.ArchiveError as e:
+        err.print(f"[red]{e}[/red]")
+        raise typer.Exit(1)
+    console.print(f"[green]archived[/] {p.name}" + (f", removed {', '.join(r['removed'])}" if r["removed"] else "")
+                  + f"  [dim](dsd restore {p.name})[/]")
+
+
+@app.command("restore")
+def restore_(name: str = typer.Argument(..., help="Archived project name or id.")) -> None:
+    """Restore an archived project and recreate its worktrees from their branches."""
+    from . import archive as ar
+
+    p = _any_project(name)
+    if not p.archived:
+        err.print(f"[red]'{p.name}' isn't archived[/red]")
+        raise typer.Exit(1)
+    r = ar.restore_project(p)
+    console.print(f"[green]restored[/] {p.name}" + (f" with {', '.join(r['restored'])}" if r["restored"] else "")
+                  + (f"  [yellow]branch gone for {', '.join(r['missing'])}[/]" if r["missing"] else ""))
+
+
+def _any_project(ref: str):
+    from .project import all_projects
+
+    matches = [p for p in all_projects(include_archived=True) if ref in (p.name, p.id)]
+    if len(matches) != 1:
+        err.print(f"[red]{'No' if not matches else 'More than one'} project '{ref}'[/red]"
+                  + (" (use its id; see `dsd projects -a`)" if matches else ""))
+        raise typer.Exit(1)
+    return matches[0]
+
+
 @app.command()
 def setup(force: bool = typer.Option(False, "--force", help="Overwrite dsd skills you have edited.")) -> None:
     """Wire dsd into Claude Code for your user: register the dsd MCP server and install the dsd skills."""
