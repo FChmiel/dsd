@@ -3,6 +3,7 @@ import { del, fmtNum, fmtTime, patch, post, projectPath, useApi, type Project } 
 import { href, linkProps, navigate } from "../router";
 import { Icon } from "../components/Icon";
 import { CliCard } from "../components/CliCard";
+import { ClaudeCard } from "../components/ClaudeCard";
 import { inApp, pickFolder } from "../native";
 
 interface Todo {
@@ -50,6 +51,7 @@ export function HomePage({ projects, reloadProjects }: { projects: Project[]; re
         <nav className="nav">
           <a className="active" {...linkProps("/")}><Icon name="home" /> Home
             {d && d.counts.overdue + d.counts.today > 0 && <span className="count hot">{d.counts.overdue + d.counts.today}</span>}</a>
+          <a {...linkProps("/skills")}><Icon name="skill" /> Skills</a>
         </nav>
         <div className="section-label" style={{ padding: "14px 16px 4px" }}>Projects</div>
         <nav className="nav">
@@ -75,6 +77,7 @@ export function HomePage({ projects, reloadProjects }: { projects: Project[]; re
               <div className="dim">{d ? d.summary : "Loading…"}</div>
             </div>
           </div>
+          <ClaudeCard />
           <QuickAdd onAdded={(t) => { home.reload(); flash(t.due ? `Added for ${dayLabel(t.due, new Date())}` : "Added to Someday"); }} />
           {home.error && <div className="error-box">{home.error}</div>}
           {d && (
@@ -93,6 +96,7 @@ export function HomePage({ projects, reloadProjects }: { projects: Project[]; re
             </>
           )}
           <AddProject reload={() => { reloadProjects(); home.reload(); }} />
+          <ArchivedProjects reload={() => { reloadProjects(); home.reload(); }} />
           <CliCard />
         </div>
       </main>
@@ -215,7 +219,7 @@ function TodoRow({ t, reload }: { t: Todo; reload: () => void }) {
   };
 
   return (
-    <div className={`todo ${done ? "done" : ""}`}>
+    <div className={`todo-row ${done ? "done" : ""}`}>
       <button className={`todo-check ${done ? "on" : ""}`} onClick={toggle} title={done ? "Mark not done" : "Mark done"} />
       <div className="todo-main">
         {editing ? (
@@ -413,6 +417,47 @@ function AddProject({ reload }: { reload: () => void }) {
         </div>
       )}
       {err && !needsInit && <div className="card-body" style={{ paddingTop: 0 }}><div className="error-box">{err}</div></div>}
+    </div>
+  );
+}
+
+function ArchivedProjects({ reload }: { reload: () => void }) {
+  const archived = useApi<(Project & { archived_at: string | null })[]>("/api/projects/archived");
+  const [open, setOpen] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const list = archived.data ?? [];
+  if (!list.length) return null;
+  const restore = async (p: Project) => {
+    setMsg(null);
+    try {
+      const r = await post<{ restored: string[]; missing: string[] }>(`/api/projects/${p.id}/restore`, {});
+      archived.reload();
+      reload();
+      setMsg(`Restored ${p.name}` + (r.restored.length ? ` with ${r.restored.join(", ")}` : "")
+        + (r.missing.length ? `; branch gone for ${r.missing.join(", ")}` : ""));
+    } catch (e: any) {
+      setMsg(e.message || String(e));
+    }
+  };
+  return (
+    <div className="card" style={{ marginTop: 14 }}>
+      <div className="card-head" style={{ cursor: "pointer" }} onClick={() => setOpen((o) => !o)}>
+        Archived projects <span className="muted">{list.length}</span><span className="spacer" /><span className="muted">{open ? "▾" : "▸"}</span>
+      </div>
+      {open && (
+        <div className="card-body stack" style={{ gap: 6 }}>
+          {list.map((p) => (
+            <div key={p.id} style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              <b>{p.name}</b>
+              <span className="muted mono" style={{ fontSize: 12 }}>{projectPath(p)}</span>
+              {p.archived_at && <span className="muted" style={{ fontSize: 12 }}>archived {fmtTime(p.archived_at)}</span>}
+              <span className="spacer" />
+              <button className="btn sm" onClick={() => restore(p)}>Restore</button>
+            </div>
+          ))}
+          {msg && <div className="muted">{msg}</div>}
+        </div>
+      )}
     </div>
   );
 }

@@ -137,3 +137,56 @@ def test_add_project_starts_one_outside_the_repo(env, tmp_path):
     assert p["scope"] == "apps/x" and p["name"] == "x" and p["repo"] == str(other.resolve())
     assert sorted(other.rglob("*")) == [other / "apps", other / "apps" / "x"]
     assert c.post("/api/projects", json={"path": str(other / "apps" / "x")}).json()["id"] == p["id"]
+
+
+def test_delete_task_with_subtasks(env):
+    c, p = env
+    parent = c.post(f"/api/p/{p.id}/tasks", json={"title": "Parent"}).json()
+    child = c.post(f"/api/p/{p.id}/tasks", json={"title": "Child", "parent": parent["id"]}).json()
+    keep = c.post(f"/api/p/{p.id}/tasks", json={"title": "Keep me"}).json()
+    c.patch(f"/api/p/{p.id}/tasks/{parent['id']}", json={"note": "a note"})
+    r = c.delete(f"/api/p/{p.id}/tasks/{parent['id']}")
+    assert r.status_code == 200 and r.json() == {"deleted": [parent["id"], child["id"]]}
+    ids = [t["id"] for t in c.get(f"/api/p/{p.id}/tasks").json()]
+    assert parent["id"] not in ids and child["id"] not in ids and keep["id"] in ids
+    assert "a note" not in p.main_plan_path.read_text()
+    assert c.delete(f"/api/p/{p.id}/tasks/T-404").status_code == 400
+
+
+def test_programs_in_a_session_hear_about_resizes(env):
+    import sys
+
+    c, p = env
+    term = c.post(f"/api/p/{p.id}/terminals", json={"kind": "shell"}).json()
+    script = ("import os,signal,time; signal.signal(signal.SIGWINCH, lambda *a: print('SZ', os.get_terminal_size().columns, flush=True));"
+              " print('READY', flush=True); time.sleep(20)")
+
+    def wait_for(ws, needle: bytes, seen: bytes = b"") -> bytes:
+        deadline = time.time() + 20
+        while needle not in seen and time.time() < deadline:
+            seen += ws.receive_bytes()
+        return seen
+
+    with c.websocket_connect(f"/api/terminals/{term['id']}/ws") as ws:
+        ws.send_text('{"type":"resize","rows":30,"cols":100}')
+        ws.send_bytes(f'{sys.executable} -c "{script}"\r'.encode())
+        assert b"READY" in wait_for(ws, b"READY\r\n")
+        ws.send_text('{"type":"resize","rows":30,"cols":137}')
+        assert b"SZ 137" in wait_for(ws, b"SZ 137")
+    c.delete(f"/api/terminals/{term['id']}")
+
+
+def test_sessions_do_not_inherit_claude_code_session_markers(env, monkeypatch):
+    c, p = env
+    monkeypatch.setenv("CLAUDE_CODE_CHILD_SESSION", "1")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "parent")
+    monkeypatch.setenv("CLAUDE_CODE_USE_BEDROCK", "keep")
+    term = c.post(f"/api/p/{p.id}/terminals", json={"kind": "shell"}).json()
+    with c.websocket_connect(f"/api/terminals/{term['id']}/ws") as ws:
+        ws.send_bytes(b'echo "m=[$CLAUDE_CODE_CHILD_SESSION$CLAUDE_CODE_SESSION_ID] k=[$CLAUDE_CODE_USE_BEDROCK]"\r')
+        seen = b""
+        deadline = time.time() + 15
+        while b"k=[keep]" not in seen and time.time() < deadline:
+            seen += ws.receive_bytes()
+        assert b"m=[] k=[keep]" in seen
+    c.delete(f"/api/terminals/{term['id']}")

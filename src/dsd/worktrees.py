@@ -23,7 +23,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
-from .project import Project, checkout_of, dsd_home
+from .project import WORKTREES_FILE, Project, checkout_of, dsd_home, owned_worktrees, repo_projects
 
 BRANCH_PREFIX = "dsd/"
 DEFAULT_COPY = [".env", ".env.local"]
@@ -67,7 +67,7 @@ def base_dir(project: Project) -> Path:
 
 
 def _meta_file(project: Project) -> Path:
-    return project.data_dir / "worktrees.json"
+    return project.data_dir / WORKTREES_FILE
 
 
 def _load_meta(project: Project) -> dict[str, dict]:
@@ -95,6 +95,23 @@ def current_branch(root: Path) -> str | None:
 def branches(project: Project) -> list[str]:
     r = _git(_main(project), "for-each-ref", "--format=%(refname:short)", "refs/heads", check=False)
     return [b for b in r.out.splitlines() if b]
+
+
+def default_branch(project: Project) -> str | None:
+    """The repo's default branch: origin's HEAD if it exists locally, else main or master."""
+    main = _main(project)
+    remote = _git(main, "symbolic-ref", "--short", "-q", "refs/remotes/origin/HEAD", check=False).out.strip()
+    for name in ([remote.split("/", 1)[1]] if "/" in remote else []) + ["main", "master"]:
+        if _git(main, "rev-parse", "--verify", "-q", f"refs/heads/{name}", check=False).code == 0:
+            return name
+    return None
+
+
+def relevant_branches(project: Project, include: list[Path] | None = None) -> list[str]:
+    """Branches worth offering as a base: the default, the main checkout's, and this project's worktrees'."""
+    names = [default_branch(project), current_branch(_main(project))]
+    names += [w["branch"] for w in list_worktrees(project, with_status=False, include=include)]
+    return list(dict.fromkeys(n for n in names if n))
 
 
 def _porcelain(project: Project) -> list[dict]:
@@ -146,10 +163,14 @@ def _entries(project: Project, include: list[Path] | None = None, everything: bo
     meta = _load_meta(project)
     by_path = {v["path"]: (k, v) for k, v in meta.items()}
     current = {str(c) for c in (checkout_of(Path(p).resolve()) for p in include or []) if c}
+    others = set().union(*(owned_worktrees(p) for p in repo_projects(project.repo) if p.id != project.id))
+    pushed = _pushed_branches(project)
     out = []
     for item in _porcelain(project):
         path = Path(item["path"])
         name, m = by_path.get(str(path), (None, {}))
+        if str(path) in others and not m:
+            continue
         if path == main:
             name, origin = "main", "main"
         elif m:
@@ -165,6 +186,7 @@ def _entries(project: Project, include: list[Path] | None = None, everything: bo
             "branch": item.get("branch"), "head": item.get("head"), "detached": item.get("detached", False),
             "managed": bool(m), "base": m.get("base"), "task": m.get("task"), "created": m.get("created"),
             "copied": m.get("copied", []), "exists": path.is_dir(), "prunable": item.get("prunable", False),
+            "auto_named": bool(m.get("auto_named")), "branch_pushed": item.get("branch") in pushed,
         })
     out.sort(key=lambda e: (not e["is_main"], -(e["created"] or 0)))
     return out
@@ -219,6 +241,70 @@ def hide_worktree(project: Project, name: str) -> dict:
     return {"hidden": wt["name"]}
 
 
+def move_worktree(project: Project, name: str, dest: Project) -> dict:
+    """Hand a worktree (and its metadata) to another project on the same repo."""
+    if dest.repo.resolve() != project.repo.resolve() or dest.id == project.id:
+        raise WorktreeError(f"'{dest.name}' isn't another project on {project.repo}")
+    wt = get_worktree(project, name)
+    meta = _load_meta(project)
+    if wt["name"] not in meta:
+        raise WorktreeError(f"'{wt['name']}' isn't in {project.name}'s worktree list")
+    entry = meta.pop(wt["name"])
+    dest_meta = _load_meta(dest)
+    new, n = wt["name"], 1
+    while new in dest_meta:
+        n += 1
+        new = f"{wt['name']}-{n}"
+    dest_meta[new] = entry
+    _save_meta(dest, dest_meta)
+    _save_meta(project, meta)
+    return get_worktree(dest, new)
+
+
+def _pushed_branches(project: Project) -> set[str]:
+    out = _git(_main(project), "for-each-ref", "--format=%(refname:short)", "refs/remotes", check=False).out
+    return {ref.split("/", 1)[1] for ref in out.split() if "/" in ref}
+
+
+def rename_worktree(project: Project, name: str, new_name: str, rename_branch: bool = False) -> dict:
+    """Rename a dsd worktree (its label everywhere in dsd). The folder never moves; with `rename_branch`,
+    its dsd/ branch is renamed too, if it hasn't been pushed."""
+    wt = get_worktree(project, name)
+    meta = _load_meta(project)
+    if wt["is_main"] or wt["name"] not in meta:
+        raise WorktreeError(f"'{wt['name']}' isn't one of this project's worktrees")
+    new = slugify(new_name, 40)
+    if new != wt["name"] and (new in meta or new == "main"):
+        raise WorktreeError(f"The name '{new}' is already used in this project")
+    entry = meta.pop(wt["name"])
+    if rename_branch and wt["branch"] != f"{BRANCH_PREFIX}{new}":
+        if not (wt["branch"] or "").startswith(BRANCH_PREFIX):
+            meta[wt["name"]] = entry
+            raise WorktreeError(f"Only dsd's own branches ({BRANCH_PREFIX}...) are renamed; {wt['branch']} is kept")
+        if wt["branch_pushed"]:
+            meta[wt["name"]] = entry
+            raise WorktreeError(f"{wt['branch']} has been pushed, so its name is kept; only the worktree is renamed")
+        target = f"{BRANCH_PREFIX}{new}"
+        if target in branches(project):
+            meta[wt["name"]] = entry
+            raise WorktreeError(f"A branch named {target} already exists")
+        _git(_main(project), "branch", "-m", wt["branch"], target)
+        entry["branch"] = target
+    entry["auto_named"] = False
+    meta[new] = entry
+    _save_meta(project, meta)
+    if new != wt["name"]:
+        from . import review
+
+        comments = review.load_comments(project)
+        if any(c.get("worktree") == wt["name"] for c in comments):
+            for c in comments:
+                if c.get("worktree") == wt["name"]:
+                    c["worktree"] = new
+            review._save(project, comments)
+    return get_worktree(project, new)
+
+
 def get_worktree(project: Project, name: str | None) -> dict:
     """Resolve 'main'/None or a worktree name (or branch) to its entry; any worktree of the repo resolves."""
     wts = _entries(project, everything=True)
@@ -252,6 +338,7 @@ def create_worktree(project: Project, name: str | None = None, base: str | None 
     main = _main(project)
     if _git(main, "rev-parse", "--verify", "-q", "HEAD", check=False).code != 0:
         raise WorktreeError("The repo has no commits yet; commit once before creating worktrees.")
+    auto_named = not name and not task
     if not name:
         name = slugify(f"{task}-{task_title}" if task and task_title else task or random_name(), 40)
     name = slugify(name, 40)
@@ -274,12 +361,14 @@ def create_worktree(project: Project, name: str | None = None, base: str | None 
     _git(main, "worktree", "add", "-b", branch, str(path), base)
     copied = _bootstrap(project, main, path)
     meta[name] = {"path": str(path.resolve()), "branch": branch, "base": base, "task": task,
-                  "created": time.time(), "copied": copied, "origin": "dsd"}
+                  "created": time.time(), "copied": copied, "origin": "dsd", "auto_named": auto_named}
     _save_meta(project, meta)
     return get_worktree(project, name) | {"copied": copied}
 
 
-def remove_worktree(project: Project, name: str, force: bool = False, delete_branch: bool = False) -> dict:
+def remove_worktree(project: Project, name: str, force: bool = False, delete_branch: bool = False,
+                    park: bool = False) -> dict:
+    """Remove a worktree's checkout. With `park`, keep its metadata so restore_parked can recreate it."""
     wt = get_worktree(project, name)
     if wt["is_main"]:
         raise WorktreeError("Can't remove the main checkout")
@@ -301,9 +390,35 @@ def remove_worktree(project: Project, name: str, force: bool = False, delete_bra
             raise WorktreeError(f"Worktree removed, but branch {wt['branch']} was kept: {r.err.strip()}")
         branch_deleted = True
     meta = _load_meta(project)
-    meta.pop(wt["name"], None)
+    if park and wt["name"] in meta:
+        meta[wt["name"]]["parked"] = True
+    else:
+        meta.pop(wt["name"], None)
     _save_meta(project, meta)
     return {"removed": wt["name"], "branch_deleted": branch_deleted}
+
+
+def restore_parked(project: Project) -> tuple[list[str], list[str]]:
+    """Recreate parked worktrees from their branches: (restored, missing because the branch is gone)."""
+    main = _main(project)
+    meta = _load_meta(project)
+    have = set(branches(project))
+    restored, missing = [], []
+    for name, m in list(meta.items()):
+        if not m.get("parked"):
+            continue
+        if m.get("branch") not in have:
+            meta.pop(name)
+            missing.append(name)
+            continue
+        path = Path(m["path"])
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _git(main, "worktree", "add", str(path), m["branch"])
+        m["copied"] = _bootstrap(project, main, path)
+        m.pop("parked")
+        restored.append(name)
+    _save_meta(project, meta)
+    return restored, missing
 
 
 def commit_all(project: Project, name: str, message: str) -> dict:

@@ -32,6 +32,25 @@ def _version_key(path: Path) -> tuple:
     return tuple(int(x) for x in m.group(1).split(".")) if m else ()
 
 
+CLAUDE_SESSION_MARKERS = (
+    "CLAUDECODE", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_EXECPATH",
+    "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_CODE_SESSION_ATTENDED",
+    "CLAUDE_CODE_SESSION_ID", "CLAUDE_PID", "CLAUDE_EFFORT",
+)
+
+
+def _claude_startup() -> str:
+    claude = resolve_claude_command()
+    if claude.startswith("echo "):
+        return claude
+    from ..agents import claude_session_command
+
+    try:
+        return claude_session_command(claude)
+    except OSError:
+        return claude
+
+
 def resolve_claude_command() -> str:
     """How to launch Claude Code: $DSD_CLAUDE_CMD, `claude` on the login-shell PATH,
     common install locations, then the newest binary bundled with the VS Code extension."""
@@ -101,8 +120,8 @@ class TerminalManager:
         master, slave = pty.openpty()
         _set_size(master, 32, 120)
         full_env = {**os.environ, **(env or {}), "TERM": "xterm-256color", "COLORTERM": "truecolor"}
-        full_env.pop("DSD_RUN_DIR", None)
-        full_env.pop("DSD_PROJECT_ROOT", None)
+        for key in ("DSD_RUN_DIR", "DSD_PROJECT_ROOT", *CLAUDE_SESSION_MARKERS):
+            full_env.pop(key, None)
         from ..appsupport import ensure_app_shim
 
         shim_dir = ensure_app_shim()  # packaged app: make `dsd` (and so `dsd mcp`) resolvable in the session
@@ -112,7 +131,7 @@ class TerminalManager:
             full_env["DSD_WORKTREE"] = worktree
         proc = subprocess.Popen(
             [shell, "-l", "-i"], cwd=cwd, env=full_env, stdin=slave, stdout=slave, stderr=slave,
-            start_new_session=True, close_fds=True,
+            start_new_session=True, close_fds=True, preexec_fn=_take_controlling_tty,
         )
         os.close(slave)
         os.set_blocking(master, False)
@@ -122,7 +141,7 @@ class TerminalManager:
         self.terms[tid] = term
         loop = asyncio.get_running_loop()
         loop.add_reader(master, self._on_readable, term)
-        startup = command or (resolve_claude_command() if kind == "claude" else None)
+        startup = command or (_claude_startup() if kind == "claude" else None)
         if setup:  # e.g. `uv sync` in a fresh worktree, then start the agent
             startup = f"{setup} && {startup}" if startup else setup
         if startup:
@@ -185,7 +204,11 @@ class TerminalManager:
         if term and not term.exited:
             _set_size(term.fd, rows, cols)
             try:
-                os.killpg(os.getpgid(term.proc.pid), signal.SIGWINCH)
+                pgrp = os.tcgetpgrp(term.fd)
+            except OSError:
+                pgrp = os.getpgid(term.proc.pid)
+            try:
+                os.killpg(pgrp, signal.SIGWINCH)
             except OSError:
                 pass
 
@@ -213,6 +236,12 @@ class TerminalManager:
     def close_all(self) -> None:
         for tid in list(self.terms):
             self.close(tid)
+
+
+def _take_controlling_tty() -> None:
+    """Runs in the child after setsid: make the PTY its controlling terminal, so the kernel tells the
+    foreground job (e.g. claude, which zsh runs in its own process group) about window size changes."""
+    fcntl.ioctl(0, termios.TIOCSCTTY, 0)
 
 
 def _set_size(fd: int, rows: int, cols: int) -> None:

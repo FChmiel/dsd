@@ -97,17 +97,30 @@ export function TerminalView({ tid, active, onExit }: { tid: string; active: boo
       const ws = wsRef.current;
       if (ws && ws.readyState === WebSocket.OPEN) ws.send(enc.encode(d));
     });
-    const resizeSub = term.onResize(sendResize);
-    const ro = new ResizeObserver(() => {
-      if (host.current && host.current.offsetWidth > 0) {
-        try { fit.fit(); } catch { /* ignore */ }
+    term.attachCustomKeyEventHandler((e) => {
+      if (e.key !== "Enter" || !e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return true;
+      if (e.type === "keydown") {
+        const ws = wsRef.current;
+        if (ws && ws.readyState === WebSocket.OPEN) ws.send(enc.encode("\x1b\r"));
       }
+      return false;
+    });
+    const resizeSub = term.onResize(sendResize);
+    let refit: number | undefined;
+    const ro = new ResizeObserver(() => {
+      window.clearTimeout(refit);
+      refit = window.setTimeout(() => {
+        if (host.current && host.current.offsetWidth > 0) {
+          try { fit.fit(); } catch { /* ignore */ }
+        }
+      }, 120);
     });
     ro.observe(host.current!);
 
     return () => {
       disposed = true;
       window.clearTimeout(retry);
+      window.clearTimeout(refit);
       ro.disconnect();
       dataSub.dispose();
       resizeSub.dispose();
@@ -134,19 +147,27 @@ export function TerminalPane(props: {
   activeId: string | null;
   onSelect: (id: string) => void;
   onNew: (kind: "claude" | "shell", target: SessionTarget) => Promise<unknown>;
+  onTerminal: () => void;
+  terminalWhere: string;
   launcherOpen: boolean;
   setLauncherOpen: (b: boolean) => void;
   onClose: (id: string) => void;
+  onRenameWorktree?: (worktree: string) => void;
   onExited: (id: string) => void;
   onHide: () => void;
+  full: boolean;
+  onToggleFull: () => void;
+  context: string;
 }) {
   const { terminals, activeId, launcherOpen, setLauncherOpen } = props;
   return (
     <div className="term-pane" style={{ position: "relative" }}>
       <div className="term-tabs">
+        {props.full && <span className="term-context" title="Exit full screen to see the project">{props.context}</span>}
         {terminals.map((t) => (
           <button key={t.id} className={`term-tab ${t.id === activeId ? "active" : ""}`} onClick={() => props.onSelect(t.id)}
-            title={`${t.kind === "claude" ? "Claude Code" : "Shell"} · ${t.worktree ? `worktree ${t.worktree}` : "main checkout"}${t.branch ? ` · ${t.branch}` : ""}`}>
+            onDoubleClick={() => t.worktree && props.onRenameWorktree?.(t.worktree)}
+            title={`${t.kind === "claude" ? "Claude Code" : "Shell"} · ${t.worktree ? `worktree ${t.worktree}` : "main checkout"}${t.branch ? ` · ${t.branch}` : ""}${t.worktree ? " · double-click to rename" : ""}`}>
             <span className={`dot ${t.kind === "claude" ? "" : "shell"} ${t.exited ? "exited" : ""}`} />
             {t.kind === "claude" ? "Claude" : "Shell"}
             <span className="branch">{t.worktree ?? t.branch ?? "main"}</span>
@@ -154,7 +175,11 @@ export function TerminalPane(props: {
           </button>
         ))}
         <span style={{ flex: 1 }} />
+        <button className="term-btn" onClick={props.onTerminal} title={`Open a shell in ${props.terminalWhere}`}>+ Terminal</button>
         <button className="term-btn" data-launcher-toggle onClick={() => setLauncherOpen(!launcherOpen)} title="New Claude or shell session (new worktree, existing worktree, or main checkout)">+ New session</button>
+        <button className="term-btn" onClick={props.onToggleFull} title={props.full ? "Exit full screen (⌘⇧↵)" : "Full screen (⌘⇧↵)"}>
+          {props.full ? "⤡ Exit full screen" : "⤢"}
+        </button>
         <button className="term-btn" onClick={props.onHide} title="Hide agent pane (⌘J)">⇥</button>
       </div>
       {launcherOpen && <SessionLauncher pid={props.pid} onStart={props.onNew} onClose={() => setLauncherOpen(false)} />}
@@ -162,13 +187,12 @@ export function TerminalPane(props: {
         {terminals.length === 0 && (
           <div className="term-empty">
             <div className="big">Agent pane</div>
-            Start <b>Claude Code</b> in this project. It gets the dsd MCP server and skills
-            (<code>/dsd-next-task</code>, <code>/dsd-run-experiment</code>, <code>/dsd-plan</code>…) from the project's
-            <code> .mcp.json</code> and <code>.claude/skills</code>.
+            Start <b>Claude Code</b> in this project. Sessions started here get dsd's MCP tools and skills automatically (<code>/dsd-plan</code>, <code>/dsd-develop</code>, <code>/dsd-review</code>, <code>/dsd-benchmark</code>…).
             <div style={{ marginTop: 6 }}>Each new session gets its <b>own git worktree</b> by default, so parallel agents never edit the same checkout.</div>
             <div style={{ marginTop: 14, display: "flex", gap: 8 }}>
               <button className="term-btn" onClick={() => setLauncherOpen(true)}>New session…</button>
               <button className="term-btn" onClick={() => props.onNew("claude", { mode: "main" })}>Claude on main checkout</button>
+              <button className="term-btn" onClick={props.onTerminal}>Terminal</button>
             </div>
           </div>
         )}

@@ -199,3 +199,44 @@ def test_leaderboard_multi_group(project):
         g = leaderboard(idx, project, "churn-v1", group_by="params.model.type,params.seed")
         assert len(g["rows"]) == 6 and all(r["n"] == 1 for r in g["rows"])
         assert any(r["group"] == "xgb · 0" for r in g["rows"])
+
+
+def test_record_a_finished_benchmark_run(project, tmp_path, monkeypatch):
+    from dsd.tracking.record import RecordError, record_run
+
+    report = tmp_path / "bench.html"
+    report.write_text("<h1>results</h1>")
+    b = record_run(project, "solver-v2", benchmark="estate", task="T-1", metrics={"cost": {"total": 12.5}, "hours": 3},
+                   links={"results": "s3://bucket/run-7/", "dashboard": "https://example.com/d/1"},
+                   artifacts=[report], notes="full estate, 3 brands", created_at="2026-11-18T10:00:00+00:00")
+    meta = b.read_meta()
+    assert meta["status"] == "finished" and meta["benchmark"] == "estate" and meta["task"] == "T-1"
+    assert meta["created_at"] == "2026-11-18T10:00:00+00:00" and meta["command"] == []
+    assert meta["info"]["links"]["results"] == "s3://bucket/run-7/" and meta["info"]["recorded"] is True
+    assert {m["k"]: m["v"] for m in b.read_metrics()} == {"cost.total": 12.5, "hours": 3.0}
+    assert [a["path"] for a in b.read_manifest()] == ["bench.html"]
+    with Index(project) as idx:
+        idx.sync()
+        assert [r["name"] for r in list_runs(idx, benchmark="estate")] == ["solver-v2"]
+    with pytest.raises(RecordError):
+        record_run(project, "bad", metrics={"auc": "high"})
+    with pytest.raises(RecordError):
+        record_run(project, "bad", artifacts=[tmp_path / "missing.html"])
+    with pytest.raises(RecordError):
+        record_run(project, "empty")
+
+
+def test_cli_runs_add(project, tmp_path, monkeypatch):
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "x"],
+                   cwd=project.root, check=True)
+    monkeypatch.chdir(project.root)
+    (tmp_path / "m.json").write_text('{"auc": 0.81, "f1": {"macro": 0.7}}')
+    r = CliRunner().invoke(app, ["runs", "add", "lgbm", "-b", "churn-v1", "--metrics-json", str(tmp_path / "m.json"),
+                                 "-m", "auc=0.82", "-l", "results=s3://b/x", "--commit", "HEAD", "--note", "rerun"])
+    assert r.exit_code == 0, r.output
+    with Index(project) as idx:
+        idx.sync()
+        run = list_runs(idx, benchmark="churn-v1")[0]
+        d = idx.run_detail(run["id"])
+    assert d["metrics"] == {"auc": 0.82, "f1.macro": 0.7} and len(d["git"]["sha"]) == 40
+    assert CliRunner().invoke(app, ["runs", "add", "x", "-m", "nonsense"]).exit_code == 2

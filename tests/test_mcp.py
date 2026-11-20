@@ -63,3 +63,25 @@ def test_mcp_end_to_end(project):
     assert out["escape"].is_error
     assert "hello report" in out["artifact"]
 
+
+
+def test_worktree_rename_tool(tmp_path, monkeypatch):
+    import subprocess
+
+    from dsd import mcp_server, worktrees
+
+    root = tmp_path / "repo"
+    root.mkdir()
+    for args in (["init", "-q", "-b", "main"], ["commit", "-q", "--allow-empty", "-m", "init"]):
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *args], cwd=root, check=True)
+    p = init_project(root, name="demo").project
+    w = worktrees.create_worktree(p)
+    monkeypatch.setenv("DSD_PROJECT_ROOT", w["path"])
+    over = mcp_server.project_overview()
+    assert over["worktree"]["name"] == w["name"] and over["worktree"]["auto_named"] is True
+    r = mcp_server.worktree_rename("Staffing floors")
+    assert r["name"] == "staffing-floors" and r["branch"] == "dsd/staffing-floors"
+    assert mcp_server.project_overview()["worktree"]["auto_named"] is False
+    monkeypatch.setenv("DSD_PROJECT_ROOT", str(root))
+    with pytest.raises(Exception, match="not in"):
+        mcp_server.worktree_rename("x")

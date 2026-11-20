@@ -22,18 +22,25 @@ function buildTree(files: DocFile[]): TreeNode {
   return root;
 }
 
-const ORDER = ["plans", "decisions", "notes", "experiments", "reports"];
+const ORDER = ["plans", "analytics", "decisions", "notes", "experiments", "reports"];
 
-function Tree({ node, depth, current, collapsed, toggle }: {
-  node: TreeNode; depth: number; current: string | null; collapsed: Set<string>; toggle: (p: string) => void;
+type PlanOrder = Map<string, { index: number; number: string }>;
+
+function Tree({ node, depth, current, collapsed, toggle, plans }: {
+  node: TreeNode; depth: number; current: string | null; collapsed: Set<string>; toggle: (p: string) => void; plans: PlanOrder;
 }) {
   const { project } = useApp();
+  const inPlans = node.path === "plans";
   const kids = Array.from(node.children.values()).sort((a, b) => {
     const ad = a.file ? 1 : 0, bd = b.file ? 1 : 0;
     if (ad !== bd) return ad - bd;
     if (depth === 0) {
       const ai = ORDER.indexOf(a.name), bi = ORDER.indexOf(b.name);
       if (ai !== bi) return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
+    }
+    if (inPlans) {
+      const ai = plans.get(a.path)?.index ?? 999, bi = plans.get(b.path)?.index ?? 999;
+      if (ai !== bi) return ai - bi;
     }
     return a.name.localeCompare(b.name);
   });
@@ -42,14 +49,14 @@ function Tree({ node, depth, current, collapsed, toggle }: {
       {kids.map((k) => k.file ? (
         <button key={k.path} className={`tree-item ${current === k.path ? "active" : ""}`} style={{ paddingLeft: 8 + depth * 14 }}
           onClick={() => navigate(href(project.id, "docs", k.path))} title={k.path}>
-          <span className="chev" />{k.name}
+          <span className="chev" />{plans.get(k.path)?.number ? <span className="plan-num mono">{plans.get(k.path)!.number}</span> : null}<span className="tree-name">{k.name}</span>
         </button>
       ) : (
         <div key={k.path}>
           <button className="tree-item" style={{ paddingLeft: 8 + depth * 14, fontWeight: 550 }} onClick={() => toggle(k.path)}>
             <span className="chev">{collapsed.has(k.path) ? "▶" : "▼"}</span>{k.name}
           </button>
-          {!collapsed.has(k.path) && <Tree node={k} depth={depth + 1} current={current} collapsed={collapsed} toggle={toggle} />}
+          {!collapsed.has(k.path) && <Tree node={k} depth={depth + 1} current={current} collapsed={collapsed} toggle={toggle} plans={plans} />}
         </div>
       ))}
     </>
@@ -59,6 +66,10 @@ function Tree({ node, depth, current, collapsed, toggle }: {
 export function Docs({ path }: { path: string | null }) {
   const { project, sendToAgent } = useApp();
   const files = useApi<DocFile[]>(`/api/p/${project.id}/docs`, { poll: 8000 });
+  const planList = useApi<{ slug: string; number?: string }[]>(`/api/p/${project.id}/plans`, { poll: 15000 });
+  const planOrder: PlanOrder = useMemo(
+    () => new Map((planList.data ?? []).map((p, i) => [`plans/${p.slug}.md`, { index: i, number: p.number ?? "" }])),
+    [planList.data]);
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<any[] | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -111,7 +122,7 @@ export function Docs({ path }: { path: string | null }) {
             </div>
           ) : (
             <div className="tree">
-              <Tree node={tree} depth={0} current={current} collapsed={collapsed}
+              <Tree node={tree} depth={0} current={current} collapsed={collapsed} plans={planOrder}
                 toggle={(p) => setCollapsed((c) => { const n = new Set(c); n.has(p) ? n.delete(p) : n.add(p); return n; })} />
             </div>
           )}

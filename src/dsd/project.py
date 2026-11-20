@@ -3,10 +3,15 @@
 A project's state (docs, plans, runs, index, review comments) lives outside the code, in
 ~/.dsd/projects/<id>/ (DSD_HOME overrides ~/.dsd). Its project.toml records the repo the project is
 for and an optional scope (a repo-relative subdirectory). dsd never writes into the repo itself.
+
+Several projects can share a repo. Inside a worktree, the project that owns it (worktrees.json) wins;
+elsewhere the most specific scope wins, then the repo's default project (`default = true`, else the
+oldest).
 """
 
 from __future__ import annotations
 
+import json
 import os
 import tomllib
 from dataclasses import dataclass, field, replace
@@ -17,6 +22,7 @@ PROJECT_FILE = "project.toml"
 INDEX_FILE = "index.db"
 DOCS_DIR = "docs"
 RUNS_DIR = "runs"
+WORKTREES_FILE = "worktrees.json"
 
 
 class ProjectNotFound(Exception):
@@ -39,6 +45,8 @@ class Project:
     repo: Path
     root: Path
     scope: str | None = None
+    default: bool = False
+    archived: bool = False
     backup: list[dict] = field(default_factory=list)
     worktree_cfg: dict = field(default_factory=dict)
     docs_dir: str = DOCS_DIR
@@ -79,6 +87,10 @@ class Project:
         data: dict = {"id": self.id, "name": self.name, "repo": str(self.repo)}
         if self.scope:
             data["scope"] = self.scope
+        if self.default:
+            data["default"] = True
+        if self.archived:
+            data["archived"] = True
         if self.backup:
             data["backup"] = self.backup
         if self.worktree_cfg:
@@ -122,12 +134,14 @@ def load_project(data_dir: Path, root: Path | None = None) -> Project:
         repo=repo,
         root=root or repo,
         scope=data.get("scope") or None,
+        default=bool(data.get("default", False)),
+        archived=bool(data.get("archived", False)),
         backup=list(data.get("backup", [])),
         worktree_cfg=dict(data.get("worktree", {})),
     )
 
 
-def all_projects() -> list[Project]:
+def all_projects(include_archived: bool = False) -> list[Project]:
     base = projects_dir()
     if not base.is_dir():
         return []
@@ -136,14 +150,34 @@ def all_projects() -> list[Project]:
         if not (d / PROJECT_FILE).is_file():
             continue
         try:
-            out.append(load_project(d))
+            p = load_project(d)
         except (KeyError, tomllib.TOMLDecodeError):
             continue
+        if include_archived or not p.archived:
+            out.append(p)
     return out
 
 
 def _covers(scope: str | None, rel: str) -> bool:
     return not scope or rel == scope or rel.startswith(scope + "/")
+
+
+def owned_worktrees(project: Project) -> set[str]:
+    try:
+        meta = json.loads((project.data_dir / WORKTREES_FILE).read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        return set()
+    return {m["path"] for m in meta.values() if "path" in m}
+
+
+def pick_default(projects: list[Project]) -> Project:
+    return next((p for p in projects if p.default), None) or min(projects, key=lambda p: p.id)
+
+
+def repo_projects(repo: Path, scope: str | None | bool = False, include_archived: bool = False) -> list[Project]:
+    """Projects for `repo` (any scope, or exactly `scope` when given)."""
+    return [p for p in all_projects(include_archived) if p.repo.resolve() == repo.resolve()
+            and (scope is False or p.scope == scope)]
 
 
 def find_project(start: Path | None = None) -> Project:
@@ -152,7 +186,17 @@ def find_project(start: Path | None = None) -> Project:
     The closest enclosing checkout wins; within it, the project with the most specific scope.
     """
     here = (start or Path.cwd()).resolve()
-    projects = all_projects()
+    found = _match(all_projects(), here)
+    if found:
+        return found
+    archived = _match([p for p in all_projects(include_archived=True) if p.archived], here)
+    if archived:
+        raise ProjectNotFound(f"The dsd project '{archived.name}' for {here} is archived. "
+                              f"Restore it with `dsd restore {archived.name}`.")
+    raise ProjectNotFound(f"No dsd project for {here}. Run `dsd init` in the repo to start one.")
+
+
+def _match(projects: list[Project], here: Path) -> Project | None:
     base = projects_dir().resolve()
     if here == base or base in here.parents:
         rel = here.relative_to(base).parts
@@ -161,12 +205,20 @@ def find_project(start: Path | None = None) -> Project:
                 return p
     for checkout in (here, *here.parents):
         repo = main_checkout_of(checkout) or checkout
+        same = [p for p in projects if p.repo.resolve() == repo]
+        if not same:
+            continue
+        if checkout != repo:
+            owner = next((p for p in same if str(checkout) in owned_worktrees(p)), None)
+            if owner:
+                return replace(owner, root=checkout)
         rel = "" if here == checkout else here.relative_to(checkout).as_posix()
-        matches = [p for p in projects if p.repo.resolve() == repo and _covers(p.scope, rel)]
+        matches = [p for p in same if _covers(p.scope, rel)]
         if matches:
-            best = max(matches, key=lambda p: len(Path(p.scope).parts) if p.scope else 0)
-            return replace(best, root=checkout)
-    raise ProjectNotFound(f"No dsd project for {here}. Run `dsd init` in the repo to start one.")
+            depth = max(len(Path(p.scope).parts) if p.scope else 0 for p in matches)
+            best = [p for p in matches if (len(Path(p.scope).parts) if p.scope else 0) == depth]
+            return replace(pick_default(best), root=checkout)
+    return None
 
 
 def current_project() -> Project:

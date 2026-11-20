@@ -5,7 +5,15 @@ An agentic development platform for data scientists: project **plans and docs**,
 - **Plans:** markdown checklists with project-wide task ids (`T-12`). There's one central plan plus sub-plans, and edits only change the characters they need to.
 - **Docs:** decisions, notes and HTML reports live in the project's `docs/` folder. Docs support live `dsd-runs` tables and `![[report.html]]` embeds.
 - **Experiments:** use `dsd.run(...)` or `dsd exec -- <cmd>`. Each run records params, metrics, info and HTML artifacts, along with its git state, command and dataset references. Benchmarks rank runs, and grouped leaderboards show mean ± std across seeds.
-- **Agents:** `dsd setup` registers the dsd MCP server for your user and installs five Claude Code skills: `/dsd-plan`, `/dsd-next-task`, `/dsd-run-experiment`, `/dsd-distill` and `/dsd-report`.
+- **Agents:** Claude sessions started from the dsd app get dsd's MCP tools and skills automatically. To use them in Claude Code elsewhere, click **Connect Claude Code** in the app (or run `dsd setup`): it registers the MCP server for your user, pointing at the dsd you installed, and installs the skills. The skills are:
+  - `/dsd-plan` plans work with you: a step-by-step design doc, then tasks once you agree them.
+  - `/dsd-develop` picks up the next task, checks it against recent PRs and code, shows an HTML explainer of what will change, then builds it.
+  - `/dsd-review` reviews a GitHub PR: a summary, your focus areas, then an HTML explainer with diagrams, widgets and charts of the evidence, with blockers and changes at the end.
+  - `/dsd-benchmark` records a finished benchmark run (often an HTML dump) on a benchmark, with key metrics and links to its artefacts.
+  - `/dsd-results` posts key results to the project's **Analytics** page: a headline number, key metrics against a baseline, a chart, and links to the task, plan and runs.
+  - `/dsd-run-experiment`, `/dsd-distill` and `/dsd-report` track experiments, write decisions and notes, and build reports.
+
+  dsd keeps them up to date when it starts, but keeps any skill you've edited. The **Skills** page in the app lists them with all your other Claude skills.
 - **Outside your repo:** dsd keeps all of a project's state in `~/.dsd/projects/<id>/` and never writes into the repo, so you can use it on any codebase, including a large shared monorepo.
 - **App:** `dsd ui` serves the plans board, docs, runs, compare, leaderboards, diff review with comments you can send to an agent, and embedded Claude/shell terminals.
 
@@ -43,7 +51,7 @@ packaging/build-macos.sh # optional: build dsd.app + DMG locally (needs Rust, No
 ## Quick start
 
 ```sh
-dsd setup                # once: registers the MCP server (user scope) and installs the skills in ~/.claude/skills
+dsd setup                # optional: lets Claude Code outside the app use dsd (MCP server + skills); the app's "Connect Claude Code" does the same
 cd ~/code/my-repo
 dsd init                 # starts a project for this repo in ~/.dsd/projects/<id>/; the repo is untouched
 dsd ui                   # opens the app at http://127.0.0.1:8765
@@ -96,12 +104,25 @@ dsd task start T-4 ; dsd task done T-4 -m "AUC 0.84, run 3ax47yw7"
 dsd plan new feature-eng --title "Feature engineering"
 ```
 
+Record a run that already happened (e.g. a benchmark that dumped its results to HTML):
+
+```sh
+dsd runs add "solver-v2 full estate" -b estate --metric cost=1234.5 --metric hours=812 \
+  --link results=s3://bucket/run-7/ --artifact results.html --commit HEAD --at 2026-11-18
+```
+
 ## Demo
 
 ```sh
 uv run python examples/make_demo.py      # builds .demo/churn-model (git repo, plans, docs, 16 runs, report, pending diff)
 dsd ui .demo/churn-model
 ```
+
+## Archiving a project
+
+Like archiving a pane in Pane: **Archive project** on a project's overview (or `dsd archive [name] --yes`) hides the project and removes the checkouts of the worktrees dsd made for it. Their branches stay, so committed work is safe; uncommitted changes block the archive unless you choose to discard them (`--force`). Adopted worktrees are only unlisted, never deleted. Docs, plans and runs are kept.
+
+Restore it from **Archived projects** on Home (or `dsd restore <name>`): the project comes back and its worktrees are recreated from their branches. `dsd projects -a` lists every project, archived ones included.
 
 ## Worktrees: one session per branch
 

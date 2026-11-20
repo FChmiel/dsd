@@ -9,16 +9,17 @@ import asyncio
 import contextlib
 import json
 import mimetypes
+import tomllib
 from pathlib import Path
 
 from fastapi import Body, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .. import __version__, plans, review, worktrees
+from .. import __version__, analytics, archive, plans, review, skills, worktrees
 from .. import docs as docs_mod
 from ..init import init_project
-from ..project import Project, ProjectNotFound, all_projects, find_project
+from ..project import Project, ProjectNotFound, all_projects, checkout_of, find_project
 from ..tracking.index import Index
 from ..tracking.query import QueryError, compare, leaderboard, list_runs, load_bench_specs, set_bench_spec
 from .terminals import TerminalManager
@@ -34,6 +35,9 @@ def create_app(current: Path | None = None) -> FastAPI:
         from .terminals import resolve_claude_command
 
         asyncio.get_running_loop().run_in_executor(None, resolve_claude_command)  # warm the lookup
+        from ..agents import refresh_installed_skills
+
+        asyncio.get_running_loop().run_in_executor(None, refresh_installed_skills)
         yield
         terms.close_all()
 
@@ -49,10 +53,25 @@ def create_app(current: Path | None = None) -> FastAPI:
     def guard(fn, *a, **kw):
         try:
             return fn(*a, **kw)
-        except (plans.PlanError, docs_mod.DocsError, QueryError, ValueError, worktrees.WorktreeError) as e:
+        except (plans.PlanError, docs_mod.DocsError, QueryError, ValueError, worktrees.WorktreeError,
+                skills.SkillError, archive.ArchiveError) as e:
             raise HTTPException(400, str(e))
         except (KeyError, FileNotFoundError) as e:
             raise HTTPException(404, str(e.args[0] if e.args else e))
+
+    current_root = checkout_of(current.resolve()) if current else None
+
+    def sync_terminals(p: Project) -> None:
+        """Keep sessions' worktree names current, also after a rename made elsewhere (e.g. by Claude via MCP)."""
+        live = [t for t in terms.terms.values() if t.project_id == p.id and t.worktree]
+        if not live:
+            return
+        by_path = {m["path"]: (n, m.get("branch")) for n, m in worktrees._load_meta(p).items() if "path" in m}
+        for t in live:
+            for path, (n, branch) in by_path.items():
+                if t.cwd == path or t.cwd.startswith(path + "/"):
+                    t.worktree, t.branch = n, branch or t.branch
+                    break
 
     def include(p: Project) -> list[Path]:
         return [current] if current else []
@@ -62,6 +81,14 @@ def create_app(current: Path | None = None) -> FastAPI:
         idx.sync()
         return idx
 
+    def plan_rows(p: Project) -> list[dict]:
+        tree = plans.plan_tree(p)
+        numbers = plans.plan_numbers(tree)
+        return [{"slug": pl.slug, "title": pl.title, "status": pl.meta.get("status", "active"),
+                 "parent": pl.meta.get("parent"), "depth": depth, "number": numbers.get(pl.slug, ""),
+                 "summary": plans.plan_summary(pl), **pl.counts()}
+                for pl, depth in tree]
+
     def project_json(p: Project) -> dict:
         return {"id": p.id, "name": p.name, "root": str(p.root), "repo": str(p.repo), "scope": p.scope,
                 "data_dir": str(p.data_dir), "docs_dir": p.docs_dir}
@@ -70,6 +97,27 @@ def create_app(current: Path | None = None) -> FastAPI:
     @app.get("/api/health")
     def health():
         return {"ok": True, "version": __version__}
+
+    @app.get("/api/claude")
+    def claude_status():
+        from .. import agents
+
+        return {"mcp": agents.mcp_status(),
+                "skills": [{"name": n, "state": agents.skill_state(n, b)} for n, b in agents.bundled_skills().items()]}
+
+    @app.post("/api/claude/connect")
+    def claude_connect():
+        from .. import agents
+
+        skills_done = [{"action": a, "path": str(p)} for a, p in agents.install_skills(force=False)]
+        try:
+            mcp = agents.register_mcp()
+        except RuntimeError as e:
+            raise HTTPException(400, str(e))
+        if mcp == "missing":
+            raise HTTPException(400, "The claude CLI isn't on your PATH. Install Claude Code, then try again, or run: "
+                                + " ".join(agents.mcp_add_command()))
+        return {"mcp": mcp, "skills": skills_done, "status": agents.mcp_status()}
 
     @app.get("/api/cli")
     async def cli_status():
@@ -124,6 +172,46 @@ def create_app(current: Path | None = None) -> FastAPI:
         guard(home.delete_todo, task_id)
         return {"ok": True}
 
+    # ------------------------------------------------------------ skills (global)
+    @app.get("/api/skills")
+    def skills_list():
+        return skills.list_skills()
+
+    @app.get("/api/skills/dsd")
+    def skills_dsd_status():
+        from .. import agents
+
+        return [{"name": n, "state": agents.skill_state(n, b)} for n, b in agents.bundled_skills().items()]
+
+    @app.post("/api/skills/dsd/install")
+    def skills_dsd_install(force: bool = Body(False, embed=True)):
+        from .. import agents
+
+        return [{"action": a, "path": str(p)} for a, p in agents.install_skills(force=force)]
+
+    @app.get("/api/skills/terminals")
+    def skills_terminals():
+        return terms.list("skills")
+
+    @app.get("/api/skills/{sid}")
+    def skill_get(sid: str):
+        return guard(skills.get_skill, sid)
+
+    @app.get("/api/skills/{sid}/file")
+    def skill_file(sid: str, path: str):
+        return {"path": path, "content": guard(skills.read_file, sid, path)}
+
+    @app.put("/api/skills/{sid}/file")
+    def skill_file_write(sid: str, path: str = Body(...), content: str = Body(...)):
+        guard(skills.write_file, sid, path, content)
+        return {"ok": True}
+
+    @app.post("/api/skills/{sid}/session")
+    async def skill_session(sid: str, kind: str = Body("claude", embed=True)):
+        s = guard(skills.get_skill, sid)
+        title = f"{'Claude' if kind == 'claude' else 'Shell'} · {s['name']}"
+        return terms.create("skills", s["path"], kind=kind, title=title).info()
+
     @app.get("/api/projects")
     def projects_list():
         return [project_json(p) for p in all_projects()]
@@ -141,32 +229,64 @@ def create_app(current: Path | None = None) -> FastAPI:
                 raise HTTPException(409, "no dsd project for this folder yet (send init=true to start one)")
         return project_json(guard(init_project, root, name, scope).project)
 
-    @app.get("/api/p/{pid}/overview")
-    def overview(pid: str):
+    @app.get("/api/projects/archived")
+    def projects_archived():
+        return [{**project_json(p), "archived_at": tomllib.loads(p.project_file.read_text()).get("archived_at")}
+                for p in all_projects(include_archived=True) if p.archived]
+
+    @app.post("/api/projects/{pid}/restore")
+    def projects_restore(pid: str):
+        p = next((x for x in all_projects(include_archived=True) if x.id == pid and x.archived), None)
+        if p is None:
+            raise HTTPException(404, f"no archived project {pid}")
+        return guard(archive.restore_project, p)
+
+    @app.get("/api/p/{pid}/archive")
+    def project_archive_preview(pid: str):
+        return archive.preview(get_project(pid))
+
+    @app.post("/api/p/{pid}/archive")
+    def project_archive(pid: str, force: bool = Body(False, embed=True)):
         p = get_project(pid)
+        if archive.preview(p)["blockers"] and not force:
+            guard(archive.archive_project, p, False)
+        for t in terms.list(pid):
+            terms.close(t["id"])
+        return guard(archive.archive_project, p, force)
+
+    @app.get("/api/p/{pid}/overview")
+    def overview(pid: str, worktree: str | None = None):
+        p = get_project(pid)
+        repo = review.is_repo(p.root)
+        listed = worktrees.list_worktrees(p, with_status=False, include=include(p)) if repo else []
+        if repo and worktree and worktree != "main":
+            wt = guard(worktrees.get_worktree, p, worktree)
+            changes = review.change_count(p, Path(wt["path"]), base=wt["base"], ignore=wt["copied"])
+        else:
+            changes = review.change_count(p) if repo else 0
         all_plans = plans.load_plans(p)
         with index(p) as idx:
             recent = list_runs(idx, limit=8)
             benches = idx.benchmarks()
         return {
             "project": project_json(p),
-            "plans": [{"slug": pl.slug, "title": pl.title, **pl.counts()} for pl in all_plans],
+            "plans": plan_rows(p),
             "in_progress": [t.to_dict() for pl in all_plans for t in pl.tasks if t.status == "doing"],
             "blocked": [t.to_dict() for pl in all_plans for t in pl.tasks if t.status == "blocked"],
             "benchmarks": benches,
             "recent_runs": recent,
-            "changes": review.change_count(p) if review.is_repo(p.root) else 0,
+            "changes": changes,
             "open_comments": sum(1 for c in review.load_comments(p) if c["status"] == "open"),
-            "worktrees": max(0, len(worktrees.list_worktrees(p, with_status=False, include=include(p))) - 1)
-            if review.is_repo(p.root) else 0,
+            "worktrees": max(0, len(listed) - 1),
+            "current_worktree": next((w["name"] for w in listed if not w["is_main"] and current_root
+                                      and w["path"] == str(current_root)), None),
         }
 
     # ------------------------------------------------------------ plans & tasks
     @app.get("/api/p/{pid}/plans")
     def plans_list(pid: str):
         p = get_project(pid)
-        return [{"slug": pl.slug, "title": pl.title, "status": pl.meta.get("status", "active"),
-                 "parent": pl.meta.get("parent"), **pl.counts()} for pl in plans.load_plans(p)]
+        return plan_rows(p)
 
     @app.post("/api/p/{pid}/plans")
     def plans_new(pid: str, slug: str = Body(...), title: str | None = Body(None), parent: str = Body("main")):
@@ -215,6 +335,14 @@ def create_app(current: Path | None = None) -> FastAPI:
             plans.append_note(pl, t, note)
         pl.save()
         return plans.find_task(p, t.id)[1].to_dict()
+
+    @app.delete("/api/p/{pid}/tasks/{task_id}")
+    def task_delete(pid: str, task_id: str):
+        return {"deleted": guard(plans.remove_task, get_project(pid), task_id)}
+
+    @app.get("/api/p/{pid}/analytics")
+    def analytics_list(pid: str):
+        return analytics.list_posts(get_project(pid))
 
     # ------------------------------------------------------------ docs
     @app.get("/api/p/{pid}/docs")
@@ -369,6 +497,9 @@ def create_app(current: Path | None = None) -> FastAPI:
     # ------------------------------------------------------------ terminals
     @app.get("/api/p/{pid}/terminals")
     def terminals_list(pid: str):
+        p = next((x for x in all_projects() if x.id == pid), None)
+        if p is not None:
+            sync_terminals(p)
         return terms.list(pid)
 
     @app.post("/api/p/{pid}/terminals")
@@ -405,6 +536,7 @@ def create_app(current: Path | None = None) -> FastAPI:
         if not review.is_repo(p.root):
             return []
         wts = worktrees.list_worktrees(p, include=include(p))
+        sync_terminals(p)
         open_terms = terms.list(pid)
         for w in wts:
             w["terminals"] = [t["id"] for t in open_terms if (t["worktree"] or "main") == w["name"]]
@@ -414,8 +546,9 @@ def create_app(current: Path | None = None) -> FastAPI:
     def branches_list(pid: str):
         p = get_project(pid)
         if not review.is_repo(p.root):
-            return {"current": None, "branches": []}
-        return {"current": worktrees.current_branch(p.root), "branches": worktrees.branches(p)}
+            return {"current": None, "default": None, "branches": []}
+        return {"current": worktrees.current_branch(p.root), "default": worktrees.default_branch(p),
+                "branches": worktrees.relevant_branches(p, include(p))}
 
     @app.get("/api/p/{pid}/worktrees/candidates")
     def worktrees_candidates(pid: str):
@@ -428,6 +561,24 @@ def create_app(current: Path | None = None) -> FastAPI:
     @app.post("/api/p/{pid}/worktrees/adopt")
     def worktrees_adopt(pid: str, path: str = Body(...), task: str | None = Body(None)):
         return guard(worktrees.adopt_worktree, get_project(pid), path, task or None)
+
+    @app.post("/api/p/{pid}/worktrees/{name}/rename")
+    def worktrees_rename(pid: str, name: str, new_name: str = Body(..., alias="name", embed=True),
+                         rename_branch: bool = Body(False, embed=True)):
+        p = get_project(pid)
+        r = guard(worktrees.rename_worktree, p, name, new_name, rename_branch)
+        sync_terminals(p)
+        return r
+
+    @app.post("/api/p/{pid}/worktrees/{name}/move")
+    def worktrees_move(pid: str, name: str, to: str = Body(..., embed=True)):
+        p, dest = get_project(pid), get_project(to)
+        old = guard(worktrees.get_worktree, p, name)["name"]
+        moved = guard(worktrees.move_worktree, p, name, dest)
+        for t in terms.terms.values():
+            if t.project_id == pid and t.worktree == old:
+                t.project_id, t.worktree = dest.id, moved["name"]
+        return moved
 
     @app.post("/api/p/{pid}/worktrees/{name}/hide")
     def worktrees_hide(pid: str, name: str):

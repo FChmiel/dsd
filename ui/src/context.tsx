@@ -11,6 +11,8 @@ export interface AppCtx {
   newSession: (kind: "claude" | "shell", target?: SessionTarget) => Promise<TermInfo>;
   openLauncher: () => void;
   activeTerminal: string | null;
+  /** Worktree the workspace is focused on: the active session's, else the one dsd was opened from; null = main checkout. */
+  focusWorktree: string | null;
   toast: (msg: string) => void;
 }
 

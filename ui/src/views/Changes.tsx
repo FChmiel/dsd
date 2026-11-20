@@ -8,10 +8,11 @@ interface DFile { path: string; status: string; binary: boolean; truncated: bool
 interface Comment { id: string; path: string; line: number | null; side: string; text: string; code: string | null; ref: string | null; worktree?: string | null; status: string }
 
 export function Changes() {
-  const { project, terminals, activeTerminal, toast } = useApp();
+  const { project, terminals, focusWorktree, toast } = useApp();
   const route = useRoute();
   const ref = route.query.get("ref");
-  const wt = route.query.get("worktree");
+  const picked = route.query.get("worktree");
+  const wt = ref ? null : picked ? (picked === "main" ? null : picked) : focusWorktree;
   const changes = useApi<{ repo: boolean; files: DFile[]; subject?: string; branch?: string; base?: string }>(
     `/api/p/${project.id}/changes${qs({ ref, worktree: wt })}`, { poll: ref ? 0 : 4000 });
   const wts = useApi<any[]>(`/api/p/${project.id}/worktrees`, { poll: 10000 });
@@ -57,13 +58,13 @@ export function Changes() {
             <select className="input" style={{ width: "100%" }} value={ref ? `ref:${ref}` : wt ? `wt:${wt}` : ""}
               onChange={(e) => {
                 const v = e.target.value;
-                navigate(`${href(project.id, "changes")}${v.startsWith("ref:") ? `?ref=${v.slice(4)}` : v.startsWith("wt:") ? `?worktree=${encodeURIComponent(v.slice(3))}` : ""}`);
+                navigate(`${href(project.id, "changes")}${v.startsWith("ref:") ? `?ref=${v.slice(4)}` : `?worktree=${encodeURIComponent(v.startsWith("wt:") ? v.slice(3) : "main")}`}`);
               }}>
               <option value="">Main checkout (uncommitted)</option>
               {(wts.data ?? []).filter((w) => !w.is_main).length > 0 && (
                 <optgroup label="Worktrees (all changes vs base)">
                   {(wts.data ?? []).filter((w) => !w.is_main).map((w) => (
-                    <option key={w.name} value={`wt:${w.name}`}>⎇ {w.name}{w.ahead ? ` ↑${w.ahead}` : ""}{w.dirty ? ` · ${w.dirty} changed` : ""}</option>
+                    <option key={w.name} value={`wt:${w.name}`}>⎇ {w.name}{w.name === focusWorktree ? " (this session)" : ""}{w.ahead ? ` ↑${w.ahead}` : ""}{w.dirty ? ` · ${w.dirty} changed` : ""}</option>
                   ))}
                 </optgroup>
               )}

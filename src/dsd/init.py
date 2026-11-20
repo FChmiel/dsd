@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import tomllib
 from dataclasses import dataclass, field
 from importlib.resources import files
 from pathlib import Path, PurePosixPath
@@ -9,9 +10,9 @@ from pathlib import Path, PurePosixPath
 import tomli_w
 
 from .ids import ulid
-from .project import Project, all_projects, checkout_of, main_checkout_of, projects_dir
+from .project import Project, checkout_of, main_checkout_of, pick_default, projects_dir, repo_projects
 
-DOC_SUBDIRS = ("plans", "decisions", "notes", "reports", "experiments")
+DOC_SUBDIRS = ("plans", "decisions", "analytics", "notes", "reports", "experiments")
 
 
 @dataclass
@@ -52,7 +53,14 @@ def init_project(path: Path, name: str | None = None, scope: str | None = None) 
     repo = main_checkout_of(checkout) or checkout
     scope = normalize_scope(repo, scope)
 
-    project = next((p for p in all_projects() if p.repo.resolve() == repo and p.scope == scope), None)
+    same = repo_projects(repo, scope)
+    archived = next((p for p in repo_projects(repo, scope, include_archived=True) if p.archived and p.name == name), None)
+    if name and archived:
+        raise ValueError(f"The project '{name}' on {repo} is archived. Restore it with `dsd restore {name}`.")
+    if name:
+        project = next((p for p in same if p.name == name), None)
+    else:
+        project = pick_default(same) if same else None
     if project is None:
         pid = ulid()
         default_name = PurePosixPath(scope).name if scope else repo.name
@@ -79,4 +87,15 @@ def init_project(path: Path, name: str | None = None, scope: str | None = None) 
     return report
 
 
-__all__ = ["init_project", "InitReport", "normalize_scope"]
+def set_default(project: Project) -> None:
+    """Make `project` the one the repo's main checkout resolves to (among projects with the same scope)."""
+    for p in repo_projects(project.repo, project.scope):
+        data = tomllib.loads(p.project_file.read_text())
+        if p.id == project.id:
+            data["default"] = True
+        else:
+            data.pop("default", None)
+        p.project_file.write_text(tomli_w.dumps(data))
+
+
+__all__ = ["init_project", "InitReport", "normalize_scope", "set_default"]

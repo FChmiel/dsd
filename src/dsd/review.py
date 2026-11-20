@@ -136,11 +136,23 @@ def _added_file(root: Path, rel: str, with_content: bool) -> dict | None:
     return entry
 
 
-def change_count(project: Project, root: Path | None = None) -> int:
-    """Number of changed files (tracked and untracked) in `root`, from one `git status`."""
+def change_count(project: Project, root: Path | None = None, base: str | None = None,
+                 ignore: list[str] | None = None) -> int:
+    """Number of files working_changes would show, without building the diffs."""
     root = root or project.root
-    out = _git(root, "status", "--porcelain", "--untracked-files=all", *_spec(project))
-    return sum(1 for ln in out.splitlines() if ln.strip())
+    spec = _spec(project)
+    mb = _git(root, "merge-base", base, "HEAD").strip() if base and has_head(root) else ""
+    if mb:
+        paths = set(_git(root, "diff", "--name-only", mb, *spec).splitlines())
+        paths |= set(_git(root, "ls-files", "--others", "--exclude-standard", *spec).splitlines())
+    else:
+        out = _git(root, "status", "--porcelain", "--untracked-files=all", *spec)
+        paths = {ln[3:].split(" -> ")[-1] for ln in out.splitlines() if ln.strip()}
+    if ignore:
+        from .worktrees import is_bootstrap
+
+        paths = {p for p in paths if not is_bootstrap(p, ignore)}
+    return len({p for p in paths if p})
 
 
 def working_changes(project: Project, root: Path | None = None, base: str | None = None,

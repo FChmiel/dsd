@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { qs, useApi, type Run } from "../api";
@@ -21,9 +22,10 @@ function preprocess(md: string): string {
   const lines = md.split("\n");
   let fence = false;
   return lines
-    .map((ln) => {
+    .map((ln, i) => {
       if (/^\s*(```|~~~)/.test(ln)) fence = !fence;
       if (fence) return ln;
+      if (/^\s+→\s/.test(lines[i + 1] ?? "") && ln.trim()) ln = `${ln.replace(/\s+$/, "")}  `;
       const embed = ln.match(/^\s*!\[\[([^\]]+)\]\]\s*$/);
       // Wikilinks resolve from the docs root (like an Obsidian vault), not the current folder.
       if (embed) return "```dsd-embed\n" + (embed[1].trim().startsWith("run:") ? "" : "/") + embed[1].trim() + "\n```";
@@ -62,6 +64,33 @@ function RunsEmbed({ pid, spec }: { pid: string; spec: string }) {
   );
 }
 
+let diagramCount = 0;
+
+function MermaidBlock({ code }: { code: string }) {
+  const [svg, setSvg] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    import("mermaid").then(async ({ default: mermaid }) => {
+      const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: dark ? "dark" : "neutral" });
+      const { svg } = await mermaid.render(`dsd-diagram-${++diagramCount}`, code);
+      if (alive) { setSvg(svg); setError(null); }
+    }).catch((e) => { if (alive) setError(String(e?.message ?? e)); });
+    return () => { alive = false; };
+  }, [code]);
+  if (error) {
+    return (
+      <div className="diagram diagram-error">
+        <div className="muted">Couldn't draw this diagram: {error.split("\n")[0]}</div>
+        <pre>{code}</pre>
+      </div>
+    );
+  }
+  if (!svg) return <div className="diagram muted">Drawing diagram…</div>;
+  return <div className="diagram" dangerouslySetInnerHTML={{ __html: svg }} />;
+}
+
 function FileEmbed({ pid, path }: { pid: string; path: string }) {
   const src = path.startsWith("run:")
     ? (() => { const [rid, ...rest] = path.slice(4).split("/"); return `/api/p/${pid}/runs/${rid}/artifacts/${rest.join("/")}`; })()
@@ -90,6 +119,7 @@ export function Markdown({ pid, source, docPath }: { pid: string; source: string
             const cls: string = child?.props?.className ?? "";
             const text = String(child?.props?.children ?? "").replace(/\n$/, "");
             if (cls.includes("language-dsd-runs")) return <RunsEmbed pid={pid} spec={text} />;
+            if (cls.includes("language-mermaid")) return <MermaidBlock code={text} />;
             if (cls.includes("language-dsd-embed")) {
               const t = text.trim();
               return <FileEmbed pid={pid} path={t.startsWith("run:") ? t : resolveDocPath(docPath, t)} />;

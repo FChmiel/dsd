@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, del, post, projectPath, tildify, useApi, type Project } from "./api";
+import { api, del, post, projectPath, qs, tildify, useApi, type Project } from "./api";
 import { href, linkProps, navigate, useRoute } from "./router";
 import { Ctx, type AppCtx } from "./context";
 import { TerminalPane, type TermInfo } from "./components/TerminalPane";
@@ -13,9 +13,11 @@ import { Compare } from "./views/Compare";
 import { Benchmarks } from "./views/Benchmarks";
 import { Changes } from "./views/Changes";
 import { Worktrees } from "./views/Worktrees";
+import { Analytics } from "./views/Analytics";
 import { loadSessionDefault, type SessionTarget } from "./components/SessionLauncher";
 import { CliCard } from "./components/CliCard";
 import { HomePage } from "./views/Home";
+import { SkillsPage } from "./views/Skills";
 
 const NAV = [
   { view: "overview", label: "Overview", icon: "grid" },
@@ -23,6 +25,7 @@ const NAV = [
   { view: "docs", label: "Docs", icon: "doc" },
   { view: "runs", label: "Runs", icon: "flask" },
   { view: "benchmarks", label: "Benchmarks", icon: "trophy" },
+  { view: "analytics", label: "Analytics", icon: "chart" },
   { view: "changes", label: "Changes", icon: "diff" },
   { view: "worktrees", label: "Worktrees", icon: "branch" },
 ] as const;
@@ -44,6 +47,7 @@ export default function App() {
   const projects = useApi<Project[]>("/api/projects");
   const project = projects.data?.find((p) => p.id === route.pid) ?? null;
 
+  if (route.view === "skills") return <SkillsPage sid={route.rest[0] ?? null} file={route.query.get("file")} />;
   if (!route.pid || (projects.data && !project)) {
     return <HomePage projects={projects.data ?? []} reloadProjects={projects.reload} />;
   }
@@ -57,9 +61,15 @@ function Workspace({ project, projects }: { project: Project; projects: Project[
   const [activeTerm, setActiveTerm] = useState<string | null>(null);
   const [paneOpen, setPaneOpen] = useState<boolean>(() => load("dsd.pane.open", true));
   const [paneWidth, setPaneWidth] = useState<number>(() => load("dsd.pane.width", 560));
+  const [agentFull, setAgentFull] = useState<boolean>(() => load("dsd.pane.full", false));
+  const full = agentFull && paneOpen;
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [launcherOpen, setLauncherOpen] = useState(false);
-  const overview = useApi<any>(`/api/p/${project.id}/overview`, { poll: 6000 });
+  const [currentWt, setCurrentWt] = useState<string | null>(null);
+  const active = terminals.find((t) => t.id === activeTerm);
+  const focusWorktree = active ? active.worktree ?? null : currentWt;
+  const overview = useApi<any>(`/api/p/${project.id}/overview${qs({ worktree: focusWorktree })}`, { poll: 6000 });
+  useEffect(() => { if (overview.data) setCurrentWt(overview.data.current_worktree ?? null); }, [overview.data]);
 
   const toast = useCallback((m: string) => {
     setToastMsg(m);
@@ -74,8 +84,13 @@ function Workspace({ project, projects }: { project: Project; projects: Project[
   }, [project.id]);
 
   useEffect(() => { refreshTerms(); }, [refreshTerms]);
+  useEffect(() => {
+    const t = window.setInterval(() => { if (document.visibilityState === "visible") refreshTerms(); }, 5000);
+    return () => window.clearInterval(t);
+  }, [refreshTerms]);
   useEffect(() => save("dsd.pane.open", paneOpen), [paneOpen]);
   useEffect(() => save("dsd.pane.width", paneWidth), [paneWidth]);
+  useEffect(() => save("dsd.pane.full", agentFull), [agentFull]);
   useEffect(() => { document.title = `${project.name} · dsd`; }, [project.name]);
 
   useEffect(() => {
@@ -83,6 +98,10 @@ function Workspace({ project, projects }: { project: Project; projects: Project[
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "j") {
         e.preventDefault();
         setPaneOpen((o) => !o);
+      } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "Enter") {
+        e.preventDefault();
+        setPaneOpen(true);
+        setAgentFull((f) => !f);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -144,9 +163,9 @@ function Workspace({ project, projects }: { project: Project; projects: Project[
   }, [activeTerm, terminals, newTerminal, toast]);
 
   const ctx = useMemo<AppCtx>(() => ({
-    project, sendToAgent, terminals, activeTerminal: activeTerm, toast, newSession: newTerminal,
+    project, sendToAgent, terminals, activeTerminal: activeTerm, focusWorktree, toast, newSession: newTerminal,
     openLauncher: () => { setPaneOpen(true); setLauncherOpen(true); },
-  }), [project, sendToAgent, terminals, activeTerm, toast, newTerminal]);
+  }), [project, sendToAgent, terminals, activeTerm, focusWorktree, toast, newTerminal]);
 
   // pane resize
   const dragging = useRef(false);
@@ -180,23 +199,26 @@ function Workspace({ project, projects }: { project: Project; projects: Project[
 
   let body: React.ReactNode;
   switch (route.view) {
-    case "plans": body = <Plans slug={route.rest[0] ?? "main"} focus={route.query.get("task")} />; break;
+    case "plans": body = <Plans slug={route.rest[0] ?? null} focus={route.query.get("task")} />; break;
     case "docs": body = <Docs path={route.rest.join("/") || null} />; break;
     case "runs": body = route.rest[0] ? <RunDetail rid={route.rest[0]} tab={route.query.get("tab")} /> : <Runs />; break;
     case "compare": body = <Compare ids={(route.query.get("ids") || "").split(",").filter(Boolean)} />; break;
     case "benchmarks": body = <Benchmarks name={route.rest[0] ?? null} />; break;
     case "changes": body = <Changes />; break;
     case "worktrees": body = <Worktrees />; break;
+    case "analytics": body = <Analytics />; break;
     default: body = <Overview data={ov} reload={overview.reload} />;
   }
 
   return (
     <Ctx.Provider value={ctx}>
-      <div className="app" style={{ gridTemplateColumns: `216px minmax(0,1fr) ${paneOpen ? paneWidth : 0}px` }}>
+      <div className={`app ${full ? "agent-full" : ""}`}
+        style={{ gridTemplateColumns: full ? "minmax(0,1fr)" : `216px minmax(0,1fr) ${paneOpen ? paneWidth : 0}px` }}>
         <aside className="sidebar">
           <a className="brand" {...linkProps("/")} style={{ color: "inherit", textDecoration: "none" }}><span className="logo">ds</span> dsd</a>
           <nav className="nav" style={{ paddingBottom: 6 }}>
             <a {...linkProps("/")}><Icon name="home" /> Home</a>
+            <a {...linkProps("/skills")}><Icon name="skill" /> Skills</a>
           </nav>
           <ProjectSwitcher current={project} projects={projects} />
           <nav className="nav">
@@ -216,6 +238,7 @@ function Workspace({ project, projects }: { project: Project; projects: Project[
               title={`${projectPath(project)}\nDocs, plans and runs: ${tildify(project.data_dir)}`}>
               {projectPath(project)}
             </div>
+            {focusWorktree && <div className="mono dim" style={{ marginTop: 2 }} title="The worktree of the active session">⎇ {focusWorktree}</div>}
             <div style={{ marginTop: 6, display: "flex", gap: 6, alignItems: "center" }}>
               <button className="btn sm ghost" onClick={() => setPaneOpen((o) => !o)}>
                 {paneOpen ? "Hide" : "Show"} agent <span className="kbd">⌘J</span>
@@ -225,8 +248,8 @@ function Workspace({ project, projects }: { project: Project; projects: Project[
           </div>
         </aside>
         <main className="main">{body}</main>
-        <section className={`agent ${paneOpen ? "" : "collapsed"}`} style={{ width: paneOpen ? paneWidth : 0 }}>
-          {paneOpen && (
+        <section className={`agent ${paneOpen ? "" : "collapsed"}`} style={{ width: full ? "auto" : paneOpen ? paneWidth : 0 }}>
+          {paneOpen && !full && (
             <div className={`resizer ${dragActive ? "active" : ""}`} onMouseDown={() => {
               dragging.current = true;
               setDragActive(true);
@@ -242,9 +265,25 @@ function Workspace({ project, projects }: { project: Project; projects: Project[
             activeId={activeTerm}
             onSelect={setActiveTerm}
             onNew={newTerminal}
+            onTerminal={() => newTerminal("shell", focusWorktree ? { mode: "existing", worktree: focusWorktree } : { mode: "main" })}
+            terminalWhere={focusWorktree ?? "main checkout"}
             onClose={closeTerminal}
+            onRenameWorktree={async (wt) => {
+              const name = window.prompt(`Rename worktree "${wt}" (its dsd/ branch is renamed too if it hasn't been pushed)`, wt)?.trim();
+              if (!name || name === wt) return;
+              try {
+                await post(`/api/p/${project.id}/worktrees/${encodeURIComponent(wt)}/rename`, { name, rename_branch: true });
+                await refreshTerms();
+                toast("Worktree renamed");
+              } catch (e: any) {
+                toast(`Couldn't rename: ${e.message || e}`);
+              }
+            }}
             onExited={() => refreshTerms()}
-            onHide={() => setPaneOpen(false)}
+            onHide={() => { setPaneOpen(false); setAgentFull(false); }}
+            full={full}
+            onToggleFull={() => setAgentFull((f) => !f)}
+            context={`${project.name}${focusWorktree ? ` · ⎇ ${focusWorktree}` : ""}`}
           />
         </section>
       </div>
@@ -277,6 +316,13 @@ function ProjectSwitcher({ current, projects }: { current: Project; projects: Pr
             </button>
           ))}
           <div style={{ borderTop: "1px solid var(--border)", margin: "4px 0" }} />
+          <button className="menu-item" onClick={async () => {
+            setOpen(false);
+            const name = window.prompt(`Name of the new project on ${projectPath(current)}`)?.trim();
+            if (!name) return;
+            const p = await post<Project>("/api/projects", { path: current.repo, init: true, name, scope: current.scope });
+            window.location.assign(href(p.id, "overview"));
+          }}>+ New project on this repo…</button>
           <button className="menu-item" onClick={() => { setOpen(false); navigate("/#add-project"); }}>+ Add project…</button>
         </div>
       )}
