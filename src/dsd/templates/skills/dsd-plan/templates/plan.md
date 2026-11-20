@@ -27,6 +27,13 @@ Read at commit `<sha>` on <YYYY-MM-DD>.
 
 <How the code works today, with file and line references. Group by area. For each, say what it does and where.>
 
+```mermaid
+flowchart LR
+  A[Input] --> B[Part this plan touches] --> C[Output]
+```
+
+<One sentence: what to notice in the diagram.>
+
 ### Gotchas
 
 <What an agent would not spot by reading the code: hidden callers, config that overrides code, data quirks, tests that pass for the wrong reason, environment traps.>
@@ -37,7 +44,17 @@ Read at commit `<sha>` on <YYYY-MM-DD>.
 
 ## 5. What changes
 
-<The design. What is added, moved or changed, and how the parts fit. Use a short diagram or table where it helps.>
+<The design. What is added, moved or changed, and how the parts fit.>
+
+```mermaid
+flowchart LR
+  A[Input] --> B[Part that stays the same]
+  B --> C[Part that changes]:::changed
+  C --> D[Output]
+  classDef changed stroke:#2a6fdb,stroke-width:3px
+```
+
+<One sentence: what changes and why it matters. Embed an explainer with ![[designs/<slug>.html]] if a picture is not enough.>
 
 ## 6. What does not change
 
@@ -58,6 +75,11 @@ Read at commit `<sha>` on <YYYY-MM-DD>.
 | 0 | The user reviews this plan | Plan agreed | — | No code | — | — | — |
 | 1 | | <R ids and checks, e.g. "R2: p95 < 30 s on estate; tests in test_x.py pass"> | | | | | |
 | n | Check all requirements are met | R1 to R<n> met, results recorded | — | No code | — | | — |
+
+```mermaid
+flowchart LR
+  S1[1 <step>] --> S2[2 <step>] --> S3[3 <step>]
+```
 
 ### Sample descriptions
 

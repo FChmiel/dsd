@@ -16,7 +16,7 @@ from fastapi import Body, FastAPI, HTTPException, Query, WebSocket, WebSocketDis
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .. import __version__, archive, plans, review, skills, worktrees
+from .. import __version__, analytics, archive, plans, review, skills, worktrees
 from .. import docs as docs_mod
 from ..init import init_project
 from ..project import Project, ProjectNotFound, all_projects, checkout_of, find_project
@@ -58,6 +58,18 @@ def create_app(current: Path | None = None) -> FastAPI:
 
     current_root = checkout_of(current.resolve()) if current else None
 
+    def sync_terminals(p: Project) -> None:
+        """Keep sessions' worktree names current, also after a rename made elsewhere (e.g. by Claude via MCP)."""
+        live = [t for t in terms.terms.values() if t.project_id == p.id and t.worktree]
+        if not live:
+            return
+        by_path = {m["path"]: (n, m.get("branch")) for n, m in worktrees._load_meta(p).items() if "path" in m}
+        for t in live:
+            for path, (n, branch) in by_path.items():
+                if t.cwd == path or t.cwd.startswith(path + "/"):
+                    t.worktree, t.branch = n, branch or t.branch
+                    break
+
     def include(p: Project) -> list[Path]:
         return [current] if current else []
 
@@ -65,6 +77,14 @@ def create_app(current: Path | None = None) -> FastAPI:
         idx = Index(p)
         idx.sync()
         return idx
+
+    def plan_rows(p: Project) -> list[dict]:
+        tree = plans.plan_tree(p)
+        numbers = plans.plan_numbers(tree)
+        return [{"slug": pl.slug, "title": pl.title, "status": pl.meta.get("status", "active"),
+                 "parent": pl.meta.get("parent"), "depth": depth, "number": numbers.get(pl.slug, ""),
+                 "summary": plans.plan_summary(pl), **pl.counts()}
+                for pl, depth in tree]
 
     def project_json(p: Project) -> dict:
         return {"id": p.id, "name": p.name, "root": str(p.root), "repo": str(p.repo), "scope": p.scope,
@@ -226,7 +246,7 @@ def create_app(current: Path | None = None) -> FastAPI:
             benches = idx.benchmarks()
         return {
             "project": project_json(p),
-            "plans": [{"slug": pl.slug, "title": pl.title, **pl.counts()} for pl in all_plans],
+            "plans": plan_rows(p),
             "in_progress": [t.to_dict() for pl in all_plans for t in pl.tasks if t.status == "doing"],
             "blocked": [t.to_dict() for pl in all_plans for t in pl.tasks if t.status == "blocked"],
             "benchmarks": benches,
@@ -242,8 +262,7 @@ def create_app(current: Path | None = None) -> FastAPI:
     @app.get("/api/p/{pid}/plans")
     def plans_list(pid: str):
         p = get_project(pid)
-        return [{"slug": pl.slug, "title": pl.title, "status": pl.meta.get("status", "active"),
-                 "parent": pl.meta.get("parent"), **pl.counts()} for pl in plans.load_plans(p)]
+        return plan_rows(p)
 
     @app.post("/api/p/{pid}/plans")
     def plans_new(pid: str, slug: str = Body(...), title: str | None = Body(None), parent: str = Body("main")):
@@ -296,6 +315,10 @@ def create_app(current: Path | None = None) -> FastAPI:
     @app.delete("/api/p/{pid}/tasks/{task_id}")
     def task_delete(pid: str, task_id: str):
         return {"deleted": guard(plans.remove_task, get_project(pid), task_id)}
+
+    @app.get("/api/p/{pid}/analytics")
+    def analytics_list(pid: str):
+        return analytics.list_posts(get_project(pid))
 
     # ------------------------------------------------------------ docs
     @app.get("/api/p/{pid}/docs")
@@ -450,6 +473,9 @@ def create_app(current: Path | None = None) -> FastAPI:
     # ------------------------------------------------------------ terminals
     @app.get("/api/p/{pid}/terminals")
     def terminals_list(pid: str):
+        p = next((x for x in all_projects() if x.id == pid), None)
+        if p is not None:
+            sync_terminals(p)
         return terms.list(pid)
 
     @app.post("/api/p/{pid}/terminals")
@@ -486,6 +512,7 @@ def create_app(current: Path | None = None) -> FastAPI:
         if not review.is_repo(p.root):
             return []
         wts = worktrees.list_worktrees(p, include=include(p))
+        sync_terminals(p)
         open_terms = terms.list(pid)
         for w in wts:
             w["terminals"] = [t["id"] for t in open_terms if (t["worktree"] or "main") == w["name"]]
@@ -510,6 +537,14 @@ def create_app(current: Path | None = None) -> FastAPI:
     @app.post("/api/p/{pid}/worktrees/adopt")
     def worktrees_adopt(pid: str, path: str = Body(...), task: str | None = Body(None)):
         return guard(worktrees.adopt_worktree, get_project(pid), path, task or None)
+
+    @app.post("/api/p/{pid}/worktrees/{name}/rename")
+    def worktrees_rename(pid: str, name: str, new_name: str = Body(..., alias="name", embed=True),
+                         rename_branch: bool = Body(False, embed=True)):
+        p = get_project(pid)
+        r = guard(worktrees.rename_worktree, p, name, new_name, rename_branch)
+        sync_terminals(p)
+        return r
 
     @app.post("/api/p/{pid}/worktrees/{name}/move")
     def worktrees_move(pid: str, name: str, to: str = Body(..., embed=True)):

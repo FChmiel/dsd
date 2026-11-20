@@ -12,7 +12,7 @@ import tomli_w
 from .ids import ulid
 from .project import Project, checkout_of, main_checkout_of, pick_default, projects_dir, repo_projects
 
-DOC_SUBDIRS = ("plans", "decisions", "notes", "reports", "experiments")
+DOC_SUBDIRS = ("plans", "decisions", "analytics", "notes", "reports", "experiments")
 
 
 @dataclass

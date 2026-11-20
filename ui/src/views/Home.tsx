@@ -217,7 +217,7 @@ function TodoRow({ t, reload }: { t: Todo; reload: () => void }) {
   };
 
   return (
-    <div className={`todo ${done ? "done" : ""}`}>
+    <div className={`todo-row ${done ? "done" : ""}`}>
       <button className={`todo-check ${done ? "on" : ""}`} onClick={toggle} title={done ? "Mark not done" : "Mark done"} />
       <div className="todo-main">
         {editing ? (

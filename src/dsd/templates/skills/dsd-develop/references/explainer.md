@@ -1,6 +1,6 @@
 # Explainer pages
 
-An explainer is one self-contained HTML page that helps someone understand a change quickly: what it does, why, how it works, and what to watch. `/dsd-develop` writes one before building; `/dsd-review` writes one for a pull request. Start from `assets/explainer.html` in this skill folder. Replace every `TITLE`, `SUBTITLE` and `TODO` in it, swap the example rule in the widget script and the example chart data for the real ones, and delete sections that add nothing.
+An explainer is one self-contained HTML page that helps someone understand a change quickly: what it does, why, how it works, and what to watch. `/dsd-plan` can embed one in a plan when a diagram isn't enough; `/dsd-develop` writes one before building; `/dsd-review` writes one for a pull request. Start from `assets/explainer.html` in this skill folder. Replace every `TITLE`, `SUBTITLE` and `TODO` in it, swap the example rule in the widget script and the example chart data for the real ones, and delete sections that add nothing.
 
 ## Who it is for
 
@@ -47,4 +47,4 @@ Adapt it to the change; drop sections that add nothing.
 
 ## Where it goes
 
-Save it in the dsd project's docs with `docs_write`, so it shows in the dsd app's Docs view: `designs/<task-id>-<slug>.html` for `/dsd-develop`, `reviews/pr-<number>-<slug>.html` for `/dsd-review`. Tell the user the path; to open it directly, run `open "<data_dir>/docs/<path>"` (data_dir from `project_overview`).
+Save it in the dsd project's docs with `docs_write`, so it shows in the dsd app's Docs view: `designs/<slug>.html` for `/dsd-plan` (embed it in the plan with `![[designs/<slug>.html]]`), `designs/<task-id>-<slug>.html` for `/dsd-develop`, `reviews/pr-<number>-<slug>.html` for `/dsd-review`. Tell the user the path; to open it directly, run `open "<data_dir>/docs/<path>"` (data_dir from `project_overview`).

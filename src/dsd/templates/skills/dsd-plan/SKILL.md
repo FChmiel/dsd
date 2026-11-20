@@ -5,9 +5,9 @@ description: Plan a piece of work with the user and turn it into a dsd plan - a 
 
 # Plan work with the user
 
-A dsd plan is a living design doc for work that spans several steps (usually several PRs). It holds the goal, the requirements and how each is checked, the context, and the step-by-step delivery plan, so a fresh session can pick the work up from the plan instead of from chat memory. Each step becomes a task (`T-12`) once the user agrees to it, and each check becomes a task too, so "done" means "shown to work".
+A dsd plan is a living design doc for work that spans several steps (usually several PRs). It holds the goal, the requirements and how each is checked, the context, and the step-by-step delivery plan, so a fresh session can pick the work up from the plan instead of from chat memory. Each step becomes one task (`T-12`) once the user agrees to it: a high-level product step, not a to-do list. The checks that show a step worked are written in that task's notes, so "done" means "shown to work" without cluttering the board.
 
-`references/conventions.md` holds the rules: where plans live, status values, requirements and checks, decisions, the four step rules and plain language. `templates/plan.md` and `templates/decision.md` are the templates. Read both before writing.
+`references/conventions.md` holds the rules: where plans live, status values, titles, diagrams, requirements and checks, decisions, the four step rules and plain language. `templates/plan.md` and `templates/decision.md` are the templates. Read both before writing.
 
 Use the dsd MCP tools (`project_overview`, `plan_list`, `plan_read`, `docs_read`, `docs_write`, `task_add`, `task_update`). Plans live in the project's docs folder outside the repo; never write plan files into the repo.
 
@@ -32,7 +32,7 @@ Section 3 of the plan ("What is there today") needs file and line references and
 
 ## 4. Draft the plan
 
-1. Pick a short slug and create the sub-plan: `dsd plan new <slug> --title "<Title>"` (it is linked from the central plan).
+1. Pick a short slug and create the sub-plan: `dsd plan new <slug> --title "<Title>"` (it is linked from the central plan). Follow the title rules in the conventions; the Goal's first sentence is shown under the title in the dsd app, so make it the one-line summary.
 2. Write the doc from `templates/plan.md` with `docs_write("plans/<slug>.md", ...)`, keeping the ten sections in order and leaving the `## Tasks` section empty for now. Put the agreed requirements in section 2. Set `status: draft`.
 3. **Plan the steps.** This matters most, because each step gets a human review and should be safe to ship. Check every row against the four step rules in the conventions. These ways of splitting usually work:
    - Refactors apart from changes in behaviour.
@@ -44,21 +44,29 @@ Section 3 of the plan ("What is there today") needs file and line references and
 5. Write a sample description for each row (section 8, "Sample descriptions"): one or two plain-language paragraphs, as a reviewer would read them. If a row only makes sense with the plan open, fix the row.
 6. Record each real decision in `decisions/NNNN-<slug>.md` from `templates/decision.md` (next free number; check `docs_list`). In the plan's section 4 list only the decisions it rests on, one line each. Recommend an answer but leave it `open` until the user decides.
 7. Put anything you do not know in "Open questions" rather than guessing.
+8. **Draw the change.** Readers should be able to see the design, not only read it. Use Mermaid code blocks (they render in the dsd app), following "Diagrams" in the conventions:
+   - section 3: how it works today, as a flow of the parts this plan touches;
+   - section 5: before and after, with the parts that change highlighted (`classDef changed`);
+   - section 8: the delivery steps and what each unlocks, as a flow;
+   - section 2 or 9: requirement targets and baselines as a chart (`xychart-beta`) when they are numbers.
+   For something a static diagram can't show (a rule to try with real numbers, a before-and-after on real output), write an explainer page following `references/explainer.md` from `assets/explainer.html`, save it as `designs/<slug>.html`, and embed it in the plan with `![[designs/<slug>.html]]`.
 
 ## 5. Walk the user through it, then add tasks
 
 1. Summarise the plan in chat in a few lines: the goal, the requirements and how each is checked, the steps (one line each, with their "Done when"), and the decisions and open questions that need the user. Point them to the doc (`plans/<slug>.md` in the dsd Docs view).
 2. Revise until the user agrees. Expect to change the steps and the checks; that is the point of this stage.
-3. **Only after the user confirms the steps and checks**, add the tasks, in delivery order:
-   - One task per step: `task_add(title, plan="<slug>")`, titled with the row's one-sentence change. Tag experiment work `#exp`. Add notes with `task_update(task_id, note=...)`: "Safe to ship because ...", the estimated size, and the decision numbers it rests on.
-   - Under each step, one check task per item in its "Done when": `task_add("Check R2: p95 solve time under 30 s on estate", plan="<slug>", parent="<step id>", tags=["check"], attrs={"req": "R2", "benchmark": "estate"})`. Leave out `benchmark` when the check is a test or a manual check, and say in a note what to run.
-   - A last task, `Check all requirements are met`, tagged `#check`, with one nested check task per project requirement (`attrs={"req": "R<n>"}`).
+3. **Only after the user confirms the steps and checks**, add the tasks, in delivery order. Keep the board high level: one task per step, and no separate tasks for checks or sub-steps.
+   - `task_add(title, plan="<slug>", attrs={...})`, titled by the title rules: what the step achieves, in about 6 to 12 words ("Every reader gets its target from one resolver", not "Add resolver arg and tests (#13688 rebased)"). PR numbers, file names and flags go in the notes. Tag experiment work `#exp`, and add `benchmark` to `attrs` when a benchmark measures the step.
+   - Write the step's documentation as notes on that task with `task_update(task_id, note=...)`, one line each:
+     - `Done when: R2 p95 solve time < 30 s on estate (benchmark estate); R4 goldens byte-identical (tests/golden).`
+     - `Safe to ship because: <reason>.` `Size: ~<n> lines.` `Rests on: 0003, 0005.`
+   - A last task, `Requirements met`, whose notes list every project requirement and how it is checked.
    Then put each step's task id in the plan's delivery table.
 4. Set `status: agreed` only when the user says so. Tell them the next step is `/dsd-develop`.
 
 ## Keep it current
 
-- A step is done only when its check tasks are done. Record each check's result on its task (`task_update(..., status="done", note="p95 24 s on estate, run 3ax47yw7")`); a failed check stays open (or `blocked`) with the result, and the plan is revised with the user.
+- A step is done only when every check in its "Done when" has passed. Record each result as a note on the step's task (`task_update(<id>, note="Checked R2: p95 24 s on estate (run 3ax47yw7)")`). If a check fails, note the result, set the task `blocked`, and revise the plan with the user.
 - When a step merges, mark its task done (`task_update(..., status="done", note="PR #123")`) and fill in the row. After the last one, set `status: done`.
 - The plan says only what is planned now. When the plan changes, rewrite it and add a dated line to the plan's "Change log" saying what changed and why. Do not leave struck-out rows or "changed on" notes in the body.
 - When a decision changes, edit its file: strike through the old answer, write the new one, and update the one-line summary in every plan that rests on it.

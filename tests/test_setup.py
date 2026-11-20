@@ -8,7 +8,7 @@ from typer.testing import CliRunner
 
 from dsd.cli import app
 
-SKILLS = ["dsd-benchmark", "dsd-develop", "dsd-distill", "dsd-plan", "dsd-report", "dsd-review", "dsd-run-experiment"]
+SKILLS = ["dsd-benchmark", "dsd-develop", "dsd-distill", "dsd-plan", "dsd-report", "dsd-results", "dsd-review", "dsd-run-experiment"]
 
 FAKE_CLAUDE = """#!/bin/sh
 echo "$@" >> "$HOME/claude-calls.log"
@@ -114,7 +114,7 @@ def test_explainer_guide_is_the_same_in_develop_and_review():
 
     skills = agents.bundled_skills()
     for rel in ("references/explainer.md", "assets/explainer.html"):
-        assert skills["dsd-develop"][rel] == skills["dsd-review"][rel], rel
+        assert skills["dsd-develop"][rel] == skills["dsd-review"][rel] == skills["dsd-plan"][rel], rel
 
 
 def test_bundled_skills_have_frontmatter_and_no_personal_names():

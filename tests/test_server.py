@@ -151,3 +151,26 @@ def test_delete_task_with_subtasks(env):
     assert parent["id"] not in ids and child["id"] not in ids and keep["id"] in ids
     assert "a note" not in p.main_plan_path.read_text()
     assert c.delete(f"/api/p/{p.id}/tasks/T-404").status_code == 400
+
+
+def test_programs_in_a_session_hear_about_resizes(env):
+    import sys
+
+    c, p = env
+    term = c.post(f"/api/p/{p.id}/terminals", json={"kind": "shell"}).json()
+    script = ("import os,signal,time; signal.signal(signal.SIGWINCH, lambda *a: print('SZ', os.get_terminal_size().columns, flush=True));"
+              " print('READY', flush=True); time.sleep(20)")
+
+    def wait_for(ws, needle: bytes, seen: bytes = b"") -> bytes:
+        deadline = time.time() + 20
+        while needle not in seen and time.time() < deadline:
+            seen += ws.receive_bytes()
+        return seen
+
+    with c.websocket_connect(f"/api/terminals/{term['id']}/ws") as ws:
+        ws.send_text('{"type":"resize","rows":30,"cols":100}')
+        ws.send_bytes(f'{sys.executable} -c "{script}"\r'.encode())
+        assert b"READY" in wait_for(ws, b"READY\r\n")
+        ws.send_text('{"type":"resize","rows":30,"cols":137}')
+        assert b"SZ 137" in wait_for(ws, b"SZ 137")
+    c.delete(f"/api/terminals/{term['id']}")

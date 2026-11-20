@@ -281,3 +281,48 @@ def test_relevant_branches_only(repo):
     with TestClient(create_app()) as c:
         b = c.get(f"/api/p/{repo.id}/branches").json()
         assert b == {"current": "main", "default": "main", "branches": ["main", "dsd/mine"]}
+
+
+def test_rename_worktree_and_branch(repo, tmp_path):
+    w = worktrees.create_worktree(repo)
+    assert w["auto_named"] is True and w["branch_pushed"] is False
+    Path(w["path"], "train.py").write_text("lr = 9\n")
+    cm = review.add_comment(repo, "train.py", 1, "hm", worktree=w["name"])
+    r = worktrees.rename_worktree(repo, w["name"], "Rules aware target", rename_branch=True)
+    assert r["name"] == "rules-aware-target" and r["branch"] == "dsd/rules-aware-target" and r["auto_named"] is False
+    assert r["path"] == w["path"] and Path(w["path"], "train.py").read_text() == "lr = 9\n"
+    assert git(Path(w["path"]), "branch", "--show-current").strip() == "dsd/rules-aware-target"
+    assert w["branch"] not in worktrees.branches(repo)
+    assert next(c for c in review.load_comments(repo) if c["id"] == cm["id"])["worktree"] == "rules-aware-target"
+    label_only = worktrees.rename_worktree(repo, "rules-aware-target", "Second name")
+    assert label_only["name"] == "second-name" and label_only["branch"] == "dsd/rules-aware-target"
+    other = worktrees.create_worktree(repo, name="taken")
+    with pytest.raises(worktrees.WorktreeError, match="already"):
+        worktrees.rename_worktree(repo, "second-name", "taken")
+    with pytest.raises(worktrees.WorktreeError):
+        worktrees.rename_worktree(repo, "main", "x")
+    assert other["auto_named"] is False
+
+
+def test_pushed_branches_are_not_renamed(repo, tmp_path):
+    remote = tmp_path / "remote.git"
+    git(tmp_path, "init", "-q", "--bare", str(remote))
+    git(repo.root, "remote", "add", "origin", str(remote))
+    w = worktrees.create_worktree(repo, name="pushed")
+    git(Path(w["path"]), "push", "-q", "-u", "origin", "dsd/pushed")
+    assert worktrees.get_worktree(repo, "pushed")["branch_pushed"] is True
+    with pytest.raises(worktrees.WorktreeError, match="pushed"):
+        worktrees.rename_worktree(repo, "pushed", "new name", rename_branch=True)
+    assert worktrees.rename_worktree(repo, "pushed", "new name")["branch"] == "dsd/pushed"
+
+
+def test_api_rename_updates_open_sessions(repo):
+    with TestClient(create_app()) as c:
+        t = c.post(f"/api/p/{repo.id}/terminals", json={"kind": "shell", "new_worktree": {}}).json()
+        old = t["worktree"]
+        worktrees.rename_worktree(repo, old, "named elsewhere", rename_branch=True)
+        mine = c.get(f"/api/p/{repo.id}/terminals").json()[0]
+        assert mine["worktree"] == "named-elsewhere" and mine["branch"] == "dsd/named-elsewhere"
+        r = c.post(f"/api/p/{repo.id}/worktrees/named-elsewhere/rename", json={"name": "via api"})
+        assert r.status_code == 200 and r.json()["name"] == "via-api"
+        assert c.get(f"/api/p/{repo.id}/terminals").json()[0]["worktree"] == "via-api"

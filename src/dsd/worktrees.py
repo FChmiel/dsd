@@ -164,6 +164,7 @@ def _entries(project: Project, include: list[Path] | None = None, everything: bo
     by_path = {v["path"]: (k, v) for k, v in meta.items()}
     current = {str(c) for c in (checkout_of(Path(p).resolve()) for p in include or []) if c}
     others = set().union(*(owned_worktrees(p) for p in repo_projects(project.repo) if p.id != project.id))
+    pushed = _pushed_branches(project)
     out = []
     for item in _porcelain(project):
         path = Path(item["path"])
@@ -185,6 +186,7 @@ def _entries(project: Project, include: list[Path] | None = None, everything: bo
             "branch": item.get("branch"), "head": item.get("head"), "detached": item.get("detached", False),
             "managed": bool(m), "base": m.get("base"), "task": m.get("task"), "created": m.get("created"),
             "copied": m.get("copied", []), "exists": path.is_dir(), "prunable": item.get("prunable", False),
+            "auto_named": bool(m.get("auto_named")), "branch_pushed": item.get("branch") in pushed,
         })
     out.sort(key=lambda e: (not e["is_main"], -(e["created"] or 0)))
     return out
@@ -259,6 +261,50 @@ def move_worktree(project: Project, name: str, dest: Project) -> dict:
     return get_worktree(dest, new)
 
 
+def _pushed_branches(project: Project) -> set[str]:
+    out = _git(_main(project), "for-each-ref", "--format=%(refname:short)", "refs/remotes", check=False).out
+    return {ref.split("/", 1)[1] for ref in out.split() if "/" in ref}
+
+
+def rename_worktree(project: Project, name: str, new_name: str, rename_branch: bool = False) -> dict:
+    """Rename a dsd worktree (its label everywhere in dsd). The folder never moves; with `rename_branch`,
+    its dsd/ branch is renamed too, if it hasn't been pushed."""
+    wt = get_worktree(project, name)
+    meta = _load_meta(project)
+    if wt["is_main"] or wt["name"] not in meta:
+        raise WorktreeError(f"'{wt['name']}' isn't one of this project's worktrees")
+    new = slugify(new_name, 40)
+    if new != wt["name"] and (new in meta or new == "main"):
+        raise WorktreeError(f"The name '{new}' is already used in this project")
+    entry = meta.pop(wt["name"])
+    if rename_branch and wt["branch"] != f"{BRANCH_PREFIX}{new}":
+        if not (wt["branch"] or "").startswith(BRANCH_PREFIX):
+            meta[wt["name"]] = entry
+            raise WorktreeError(f"Only dsd's own branches ({BRANCH_PREFIX}...) are renamed; {wt['branch']} is kept")
+        if wt["branch_pushed"]:
+            meta[wt["name"]] = entry
+            raise WorktreeError(f"{wt['branch']} has been pushed, so its name is kept; only the worktree is renamed")
+        target = f"{BRANCH_PREFIX}{new}"
+        if target in branches(project):
+            meta[wt["name"]] = entry
+            raise WorktreeError(f"A branch named {target} already exists")
+        _git(_main(project), "branch", "-m", wt["branch"], target)
+        entry["branch"] = target
+    entry["auto_named"] = False
+    meta[new] = entry
+    _save_meta(project, meta)
+    if new != wt["name"]:
+        from . import review
+
+        comments = review.load_comments(project)
+        if any(c.get("worktree") == wt["name"] for c in comments):
+            for c in comments:
+                if c.get("worktree") == wt["name"]:
+                    c["worktree"] = new
+            review._save(project, comments)
+    return get_worktree(project, new)
+
+
 def get_worktree(project: Project, name: str | None) -> dict:
     """Resolve 'main'/None or a worktree name (or branch) to its entry; any worktree of the repo resolves."""
     wts = _entries(project, everything=True)
@@ -292,6 +338,7 @@ def create_worktree(project: Project, name: str | None = None, base: str | None 
     main = _main(project)
     if _git(main, "rev-parse", "--verify", "-q", "HEAD", check=False).code != 0:
         raise WorktreeError("The repo has no commits yet; commit once before creating worktrees.")
+    auto_named = not name and not task
     if not name:
         name = slugify(f"{task}-{task_title}" if task and task_title else task or random_name(), 40)
     name = slugify(name, 40)
@@ -314,7 +361,7 @@ def create_worktree(project: Project, name: str | None = None, base: str | None 
     _git(main, "worktree", "add", "-b", branch, str(path), base)
     copied = _bootstrap(project, main, path)
     meta[name] = {"path": str(path.resolve()), "branch": branch, "base": base, "task": task,
-                  "created": time.time(), "copied": copied, "origin": "dsd"}
+                  "created": time.time(), "copied": copied, "origin": "dsd", "auto_named": auto_named}
     _save_meta(project, meta)
     return get_worktree(project, name) | {"copied": copied}
 

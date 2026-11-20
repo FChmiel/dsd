@@ -4,7 +4,7 @@ import { useApp } from "../context";
 import { href, linkProps, navigate } from "../router";
 import type { Worktree } from "../components/SessionLauncher";
 
-type Panel = { name: string; kind: "commit" | "merge" | "remove" } | null;
+type Panel = { name: string; kind: "commit" | "merge" | "remove" | "rename" } | null;
 
 export function Worktrees() {
   const { project, newSession, openLauncher, terminals, toast } = useApp();
@@ -49,7 +49,11 @@ export function Worktrees() {
             <div key={w.name} className="card wt-card">
               <div className="wt-top">
                 <div className="wt-title">
-                  <b>{w.is_main ? "★ main checkout" : w.name}</b>
+                  {w.is_main ? <b>★ main checkout</b> : (
+                    <b className="wt-name" title={w.origin === "dsd" || w.origin === "adopted" ? "Double-click to rename" : undefined}
+                      onDoubleClick={() => (w.origin === "dsd" || w.origin === "adopted") && setPanel({ name: w.name, kind: "rename" })}>{w.name}</b>
+                  )}
+                  {w.auto_named && <span className="muted" style={{ fontSize: 11.5 }} title="Claude renames it once it knows the task, or double-click to name it">auto-named</span>}
                   <span className="mono dim" style={{ fontSize: 12 }}>{w.branch ?? "(detached)"}{w.base ? <span className="muted"> ← {w.base}</span> : null}</span>
                   {(w.origin === "adopted" || w.origin === "current") && (
                     <span className="pill" title={w.origin === "current" ? "The worktree you started dsd from. Adopt it to keep it listed." : "Created outside dsd (e.g. by Pane). dsd won't delete it unless you remove it."}>
@@ -99,6 +103,7 @@ export function Worktrees() {
               </div>
               {open && (
                 <div style={{ marginTop: 8 }}>
+                  {open.kind === "rename" && <RenamePanel w={w} onRename={(name, branch) => act(() => post(`/api/p/${project.id}/worktrees/${w.name}/rename`, { name, rename_branch: branch }), "Renamed")} onCancel={() => setPanel(null)} />}
                   {open.kind === "commit" && <CommitPanel onCommit={(msg) => act(() => post(`/api/p/${project.id}/worktrees/${w.name}/commit`, { message: msg }), `Committed in ${w.name}`)} onCancel={() => setPanel(null)} task={w.task} />}
                   {open.kind === "merge" && <MergePanel w={w} onMerge={(strategy) => act(() => post(`/api/p/${project.id}/worktrees/${w.name}/merge`, { strategy }), `Merged ${w.branch} into ${w.base}`)} onCancel={() => setPanel(null)} />}
                   {open.kind === "remove" && <RemovePanel w={w} onRemove={(force, delBranch) => act(() => del(`/api/p/${project.id}/worktrees/${w.name}?force=${force}&delete_branch=${delBranch}`), `Removed ${w.name}`)} onCancel={() => setPanel(null)} />}
@@ -133,6 +138,29 @@ function AdoptPanel({ pid, onAdopt, onCancel }: { pid: string; onAdopt: (path: s
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function RenamePanel({ w, onRename, onCancel }: { w: Worktree; onRename: (name: string, branch: boolean) => void; onCancel: () => void }) {
+  const [name, setName] = useState(w.name);
+  const canBranch = !!w.branch?.startsWith("dsd/") && !w.branch_pushed;
+  const [branch, setBranch] = useState(canBranch);
+  const slug = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  return (
+    <div className="wt-panel">
+      <input className="input" style={{ flex: 1, minWidth: 220 }} autoFocus value={name} onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter" && slug) onRename(name, canBranch && branch); if (e.key === "Escape") onCancel(); }} />
+      {canBranch ? (
+        <label className="dim" style={{ display: "flex", gap: 5, alignItems: "center" }}>
+          <input type="checkbox" checked={branch} onChange={(e) => setBranch(e.target.checked)} /> also rename branch to dsd/{slug || "…"}
+        </label>
+      ) : (
+        <span className="muted" style={{ fontSize: 12 }}>{w.branch_pushed ? `${w.branch} is pushed, so it keeps its name` : `branch ${w.branch ?? "(detached)"} is kept`}</span>
+      )}
+      <span className="spacer" />
+      <button className="btn sm primary" disabled={!slug} onClick={() => onRename(name, canBranch && branch)}>Rename</button>
+      <button className="btn sm ghost" onClick={onCancel}>Cancel</button>
     </div>
   );
 }

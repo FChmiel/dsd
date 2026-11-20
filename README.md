@@ -10,6 +10,7 @@ An agentic development platform for data scientists: project **plans and docs**,
   - `/dsd-develop` picks up the next task, checks it against recent PRs and code, shows an HTML explainer of what will change, then builds it.
   - `/dsd-review` reviews a GitHub PR: a summary, your focus areas, then an HTML explainer with diagrams, widgets and charts of the evidence, with blockers and changes at the end.
   - `/dsd-benchmark` records a finished benchmark run (often an HTML dump) on a benchmark, with key metrics and links to its artefacts.
+  - `/dsd-results` posts key results to the project's **Analytics** page: a headline number, key metrics against a baseline, a chart, and links to the task, plan and runs.
   - `/dsd-run-experiment`, `/dsd-distill` and `/dsd-report` track experiments, write decisions and notes, and build reports.
 
   `dsd setup` updates them on later runs but keeps any skill you've edited. The **Skills** page in the app lists them with all your other Claude skills.

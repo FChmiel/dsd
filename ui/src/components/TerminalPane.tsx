@@ -97,17 +97,30 @@ export function TerminalView({ tid, active, onExit }: { tid: string; active: boo
       const ws = wsRef.current;
       if (ws && ws.readyState === WebSocket.OPEN) ws.send(enc.encode(d));
     });
-    const resizeSub = term.onResize(sendResize);
-    const ro = new ResizeObserver(() => {
-      if (host.current && host.current.offsetWidth > 0) {
-        try { fit.fit(); } catch { /* ignore */ }
+    term.attachCustomKeyEventHandler((e) => {
+      if (e.key !== "Enter" || !e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return true;
+      if (e.type === "keydown") {
+        const ws = wsRef.current;
+        if (ws && ws.readyState === WebSocket.OPEN) ws.send(enc.encode("\x1b\r"));
       }
+      return false;
+    });
+    const resizeSub = term.onResize(sendResize);
+    let refit: number | undefined;
+    const ro = new ResizeObserver(() => {
+      window.clearTimeout(refit);
+      refit = window.setTimeout(() => {
+        if (host.current && host.current.offsetWidth > 0) {
+          try { fit.fit(); } catch { /* ignore */ }
+        }
+      }, 120);
     });
     ro.observe(host.current!);
 
     return () => {
       disposed = true;
       window.clearTimeout(retry);
+      window.clearTimeout(refit);
       ro.disconnect();
       dataSub.dispose();
       resizeSub.dispose();
@@ -139,6 +152,7 @@ export function TerminalPane(props: {
   launcherOpen: boolean;
   setLauncherOpen: (b: boolean) => void;
   onClose: (id: string) => void;
+  onRenameWorktree?: (worktree: string) => void;
   onExited: (id: string) => void;
   onHide: () => void;
   full: boolean;
@@ -152,7 +166,8 @@ export function TerminalPane(props: {
         {props.full && <span className="term-context" title="Exit full screen to see the project">{props.context}</span>}
         {terminals.map((t) => (
           <button key={t.id} className={`term-tab ${t.id === activeId ? "active" : ""}`} onClick={() => props.onSelect(t.id)}
-            title={`${t.kind === "claude" ? "Claude Code" : "Shell"} · ${t.worktree ? `worktree ${t.worktree}` : "main checkout"}${t.branch ? ` · ${t.branch}` : ""}`}>
+            onDoubleClick={() => t.worktree && props.onRenameWorktree?.(t.worktree)}
+            title={`${t.kind === "claude" ? "Claude Code" : "Shell"} · ${t.worktree ? `worktree ${t.worktree}` : "main checkout"}${t.branch ? ` · ${t.branch}` : ""}${t.worktree ? " · double-click to rename" : ""}`}>
             <span className={`dot ${t.kind === "claude" ? "" : "shell"} ${t.exited ? "exited" : ""}`} />
             {t.kind === "claude" ? "Claude" : "Shell"}
             <span className="branch">{t.worktree ?? t.branch ?? "main"}</span>

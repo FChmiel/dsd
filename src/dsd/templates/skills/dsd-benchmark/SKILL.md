@@ -44,4 +44,4 @@ dsd runs add "<run name>" --benchmark <benchmark> [--task T-12] \
 
 ## 4. Show where it lands
 
-Call `bench_board(<benchmark>)` and tell the user where the run ranks and how it compares with the previous best and the last run (`runs_compare`). If it serves a task, add a one-line result to it: `task_update(<id>, note="<benchmark>: <metric> <value> (run <id>)")`.
+Call `bench_board(<benchmark>)` and tell the user where the run ranks and how it compares with the previous best and the last run (`runs_compare`). If it serves a task, add a one-line result to it: `task_update(<id>, note="<benchmark>: <metric> <value> (run <id>)")`. Then offer to post the result to the project's Analytics page with `/dsd-results`.

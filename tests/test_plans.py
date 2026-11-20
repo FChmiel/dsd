@@ -206,3 +206,28 @@ def test_cli_task_rm(project, monkeypatch):
     assert r.invoke(app, ["task", "rm", "T-2", "--yes"]).exit_code == 0
     assert "Throwaway" not in project.main_plan_path.read_text()
     assert r.invoke(app, ["task", "rm", "T-2", "--yes"]).exit_code == 1
+
+
+def test_plan_tree_follows_parents_and_link_order(project):
+    plans.new_plan(project, "outer", "Outer")
+    for slug in ("zeta", "alpha", "mid"):
+        plans.new_plan(project, slug, slug.title(), parent="outer")
+    outer = plans.load_plan(project, "outer")
+    text = outer.path.read_text()
+    outer.path.write_text(text.replace("## Goal", "## Delivery plan\n\n| 1 | [Mid](mid.md) |\n| 2 | [Zeta](zeta.md) |\n\n## Goal"))
+    plans.new_plan(project, "late", "Late")
+    tree = [(p.slug, depth) for p, depth in plans.plan_tree(project)]
+    assert tree == [("main", 0), ("outer", 1), ("mid", 2), ("zeta", 2), ("alpha", 2), ("late", 1)]
+    numbers = plans.plan_numbers(plans.plan_tree(project))
+    assert numbers == {"main": "", "outer": "1", "mid": "1.1", "zeta": "1.2", "alpha": "1.3", "late": "2"}
+
+
+def test_plan_summary_is_the_first_sentence_of_the_goal(project):
+    pl = plans.new_plan(project, "presets", "Presets")
+    pl.path.write_text(pl.path.read_text().replace(
+        "_What is this plan for?_",
+        "Let a brand pick **one named preset** for `rules_aware` on the W* rule ([see](x.md)), _instead_ of six flags. Later."))
+    assert plans.plan_summary(plans.load_plan(project, "presets")) == \
+        "Let a brand pick one named preset for rules_aware on the W* rule (see), instead of six flags."
+    empty = plans.new_plan(project, "empty", "Empty")
+    assert plans.plan_summary(empty) == ""

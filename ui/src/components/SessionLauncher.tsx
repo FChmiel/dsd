@@ -21,6 +21,8 @@ export interface Worktree {
   created?: number | null;
   managed: boolean;
   origin: "main" | "dsd" | "adopted" | "current";
+  auto_named?: boolean;
+  branch_pushed?: boolean;
 }
 
 export function loadSessionDefault(): "new" | "main" {

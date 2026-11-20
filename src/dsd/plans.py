@@ -209,6 +209,89 @@ def load_plans(project: Project) -> list[Plan]:
     return [parse_plan(p) for p in plan_paths(project)]
 
 
+def plan_tree(project: Project) -> list[tuple[Plan, int]]:
+    """Plans as an outline: each sub-plan under its parent, in the order the parent links to them."""
+    all_plans = load_plans(project)
+    by_slug = {p.slug: p for p in all_plans}
+    children: dict[str, list[Plan]] = {}
+    for p in all_plans:
+        if p.slug == MAIN:
+            continue
+        parent = p.meta.get("parent") or MAIN
+        if parent not in by_slug or parent == p.slug:
+            parent = MAIN
+        children.setdefault(parent, []).append(p)
+    out: list[tuple[Plan, int]] = []
+    seen: set[str] = set()
+
+    def walk(p: Plan, depth: int) -> None:
+        if p.slug in seen:
+            return
+        seen.add(p.slug)
+        out.append((p, depth))
+        text = "".join(p.lines)
+        def position(k: Plan) -> tuple[int, str]:
+            hits = [i for i in (text.find(f"({k.slug}.md)"), text.find(f"plans/{k.slug}.md")) if i >= 0]
+            return (min(hits) if hits else len(text) + 1, k.slug)
+        for k in sorted(children.get(p.slug, []), key=position):
+            walk(k, depth + 1)
+
+    if MAIN in by_slug:
+        walk(by_slug[MAIN], 0)
+    for p in all_plans:
+        if p.slug not in seen:
+            walk(p, 1)
+    return out
+
+
+def plan_summary(plan: Plan, limit: int = 200) -> str:
+    """The first sentence of the plan's Goal section, as plain text ('' if it is still the placeholder)."""
+    in_goal, para = False, []
+    for ln in plan.lines:
+        h = HEADING_RE.match(ln)
+        if h:
+            if in_goal and para:
+                break
+            in_goal = bool(re.match(r"(\d+\.\s*)?goal\b", h.group(2).strip(), re.IGNORECASE))
+            continue
+        if not in_goal:
+            continue
+        if ln.strip():
+            para.append(ln.strip())
+        elif para:
+            break
+    text = " ".join(para)
+    if not text or (text.startswith("_") and text.endswith("_")) or text.startswith("<"):
+        return ""
+    text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", text)
+    text = text.replace("`", "")
+    text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
+    text = re.sub(r"(?<![\w*])\*(?!\s)(.+?)(?<!\s)\*(?![\w*])", r"\1", text)
+    text = re.sub(r"(?<!\w)_(?!\s)(.+?)(?<!\s)_(?!\w)", r"\1", text)
+    m = re.match(r"(.+?[.!?])(\s|$)", text)
+    text = m.group(1) if m else text
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
+def plan_numbers(tree: list[tuple[Plan, int]]) -> dict[str, str]:
+    """Outline numbers for a plan tree: '' for the central plan, then '1', '1.1', '1.2', '2', ..."""
+    numbers: dict[str, str] = {}
+    path: list[int] = []
+    for p, depth in tree:
+        if depth == 0:
+            numbers[p.slug] = ""
+            path = []
+            continue
+        path = path[: depth - 1]
+        path += [0] * (depth - 1 - len(path))
+        counters = numbers.setdefault(f"__{'.'.join(map(str, path))}", "0")
+        n = int(counters) + 1
+        numbers[f"__{'.'.join(map(str, path))}"] = str(n)
+        path.append(n)
+        numbers[p.slug] = ".".join(map(str, path))
+    return {k: v for k, v in numbers.items() if not k.startswith("__")}
+
+
 def load_plan(project: Project, slug: str = MAIN) -> Plan:
     path = project.plans_path / f"{slug}.md"
     if not path.exists():

@@ -30,28 +30,35 @@ export function Overview({ data }: { data: any; reload: () => void }) {
 
       {archiving && <ArchivePanel pid={project.id} name={project.name} onCancel={() => setArchiving(false)} />}
 
-      <div className="grid-3" style={{ marginBottom: 14 }}>
-        {data.plans.map((p: any) => {
-          const total = p.todo + p.doing + p.done + p.blocked;
-          const pct = (n: number) => `${total ? (n / total) * 100 : 0}%`;
-          return (
-            <a key={p.slug} className="card" style={{ textDecoration: "none", color: "inherit" }} {...linkProps(href(project.id, "plans", p.slug))}>
-              <div className="card-body">
-                <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                  <b>{p.title}</b>{p.slug === "main" && <span className="pill">central</span>}
-                </div>
-                <div className="progress" style={{ margin: "10px 0 8px" }} aria-label={`${p.done} of ${total} done`}>
-                  <span style={{ width: pct(p.done), background: "var(--ok)" }} />
-                  <span style={{ width: pct(p.doing), background: "var(--doing)" }} />
-                  <span style={{ width: pct(p.blocked), background: "var(--bad)" }} />
-                </div>
-                <div className="muted" style={{ fontSize: 12 }}>
-                  {p.done}/{total} done · {p.doing} in progress{p.blocked ? ` · ${p.blocked} blocked` : ""}
-                </div>
-              </div>
-            </a>
-          );
-        })}
+      <div className="card" style={{ marginBottom: 14 }}>
+        <div className="card-head">Plan <span className="spacer" />
+          <a className="sub" {...linkProps(href(project.id, "plans"))}>Open plans →</a></div>
+        <div className="card-body plan-overview">
+          {data.plans.map((p: any) => {
+            const total = p.todo + p.doing + p.done + p.blocked;
+            const pct = (n: number) => `${total ? (n / total) * 100 : 0}%`;
+            return (
+              <a key={p.slug} className="plan-ov-row" style={{ paddingLeft: p.depth * 20 }} {...linkProps(href(project.id, "plans", p.slug))}>
+                <span className="plan-num mono">{p.number || "★"}</span>
+                <span className="plan-ov-main">
+                  <span className="plan-ov-title">
+                    <b>{p.title}</b>
+                    {p.status && p.status !== "active" && <span className="pill">{p.status}</span>}
+                  </span>
+                  {p.summary && <span className="plan-ov-summary">{p.summary}</span>}
+                </span>
+                <span className="plan-ov-progress">
+                  <span className="progress" aria-label={`${p.done} of ${total} done`}>
+                    <span style={{ width: pct(p.done), background: "var(--ok)" }} />
+                    <span style={{ width: pct(p.doing), background: "var(--doing)" }} />
+                    <span style={{ width: pct(p.blocked), background: "var(--bad)" }} />
+                  </span>
+                  <span className="muted mono" style={{ fontSize: 11.5 }}>{p.done}/{total}</span>
+                </span>
+              </a>
+            );
+          })}
+        </div>
       </div>
 
       <div className="grid-2" style={{ marginBottom: 14 }}>

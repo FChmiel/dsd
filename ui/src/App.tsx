@@ -13,6 +13,7 @@ import { Compare } from "./views/Compare";
 import { Benchmarks } from "./views/Benchmarks";
 import { Changes } from "./views/Changes";
 import { Worktrees } from "./views/Worktrees";
+import { Analytics } from "./views/Analytics";
 import { loadSessionDefault, type SessionTarget } from "./components/SessionLauncher";
 import { CliCard } from "./components/CliCard";
 import { HomePage } from "./views/Home";
@@ -24,6 +25,7 @@ const NAV = [
   { view: "docs", label: "Docs", icon: "doc" },
   { view: "runs", label: "Runs", icon: "flask" },
   { view: "benchmarks", label: "Benchmarks", icon: "trophy" },
+  { view: "analytics", label: "Analytics", icon: "chart" },
   { view: "changes", label: "Changes", icon: "diff" },
   { view: "worktrees", label: "Worktrees", icon: "branch" },
 ] as const;
@@ -82,6 +84,10 @@ function Workspace({ project, projects }: { project: Project; projects: Project[
   }, [project.id]);
 
   useEffect(() => { refreshTerms(); }, [refreshTerms]);
+  useEffect(() => {
+    const t = window.setInterval(() => { if (document.visibilityState === "visible") refreshTerms(); }, 5000);
+    return () => window.clearInterval(t);
+  }, [refreshTerms]);
   useEffect(() => save("dsd.pane.open", paneOpen), [paneOpen]);
   useEffect(() => save("dsd.pane.width", paneWidth), [paneWidth]);
   useEffect(() => save("dsd.pane.full", agentFull), [agentFull]);
@@ -193,13 +199,14 @@ function Workspace({ project, projects }: { project: Project; projects: Project[
 
   let body: React.ReactNode;
   switch (route.view) {
-    case "plans": body = <Plans slug={route.rest[0] ?? "main"} focus={route.query.get("task")} />; break;
+    case "plans": body = <Plans slug={route.rest[0] ?? null} focus={route.query.get("task")} />; break;
     case "docs": body = <Docs path={route.rest.join("/") || null} />; break;
     case "runs": body = route.rest[0] ? <RunDetail rid={route.rest[0]} tab={route.query.get("tab")} /> : <Runs />; break;
     case "compare": body = <Compare ids={(route.query.get("ids") || "").split(",").filter(Boolean)} />; break;
     case "benchmarks": body = <Benchmarks name={route.rest[0] ?? null} />; break;
     case "changes": body = <Changes />; break;
     case "worktrees": body = <Worktrees />; break;
+    case "analytics": body = <Analytics />; break;
     default: body = <Overview data={ov} reload={overview.reload} />;
   }
 
@@ -261,6 +268,17 @@ function Workspace({ project, projects }: { project: Project; projects: Project[
             onTerminal={() => newTerminal("shell", focusWorktree ? { mode: "existing", worktree: focusWorktree } : { mode: "main" })}
             terminalWhere={focusWorktree ?? "main checkout"}
             onClose={closeTerminal}
+            onRenameWorktree={async (wt) => {
+              const name = window.prompt(`Rename worktree "${wt}" (its dsd/ branch is renamed too if it hasn't been pushed)`, wt)?.trim();
+              if (!name || name === wt) return;
+              try {
+                await post(`/api/p/${project.id}/worktrees/${encodeURIComponent(wt)}/rename`, { name, rename_branch: true });
+                await refreshTerms();
+                toast("Worktree renamed");
+              } catch (e: any) {
+                toast(`Couldn't rename: ${e.message || e}`);
+              }
+            }}
             onExited={() => refreshTerms()}
             onHide={() => { setPaneOpen(false); setAgentFull(false); }}
             full={full}

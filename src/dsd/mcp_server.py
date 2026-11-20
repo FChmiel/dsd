@@ -33,6 +33,9 @@ in the project's data dir (~/.dsd/projects/<id>/, shown by project_overview). Ne
 - Add a `Task: T-12` trailer to commits that implement a task.
 - You may be in a dsd git worktree (branch dsd/<name>). Commit your work on that branch; the user reviews and
   merges it from the dsd app (`dsd wt merge`). Plans, docs and runs are shared with the main checkout.
+- If project_overview says your worktree has an auto-generated name (like "steady-raven"), rename it with
+  worktree_rename as soon as you understand the task: 2 to 4 words saying what the work is ("rules-aware-target").
+  Don't rename a worktree the user named.
 - Review comments the user left in the dsd app: review_comments, then review_resolve once addressed.
 """
 
@@ -70,6 +73,36 @@ def _compact_run(r: dict, metric_keys: list[str] | None = None) -> dict:
     }
 
 
+def _current_worktree(p) -> dict | None:
+    if not p.is_worktree:
+        return None
+    from . import worktrees
+
+    try:
+        w = next(x for x in worktrees.list_worktrees(p, with_status=False) if x["path"] == str(p.root))
+    except (StopIteration, worktrees.WorktreeError):
+        return None
+    return {"name": w["name"], "branch": w["branch"], "auto_named": w["auto_named"], "branch_pushed": w["branch_pushed"]}
+
+
+@tool
+def worktree_rename(name: str, rename_branch: bool = True) -> dict:
+    """Rename the dsd worktree you are working in, e.g. from a generated "steady-raven" to "rules-aware-target"
+    (2 to 4 words saying what the work is). The folder stays put; its dsd/ branch is renamed too unless it has
+    been pushed (then only the worktree's name changes)."""
+    from . import worktrees
+
+    p = _project()
+    current = _current_worktree(p)
+    if current is None:
+        raise ValueError("You are not in one of this project's dsd worktrees")
+    try:
+        w = worktrees.rename_worktree(p, current["name"], name, rename_branch and not current["branch_pushed"])
+    except worktrees.WorktreeError as e:
+        raise ValueError(str(e)) from e
+    return {"name": w["name"], "branch": w["branch"], "path": w["path"]}
+
+
 @tool
 def project_overview() -> dict:
     """Project summary: plans with task counts, tasks in progress, benchmarks and the 10 most recent runs."""
@@ -82,6 +115,7 @@ def project_overview() -> dict:
     return {
         "project": {"name": p.name, "id": p.id, "root": str(p.root), "repo": str(p.repo), "scope": p.scope,
                     "data_dir": str(p.data_dir)},
+        "worktree": _current_worktree(p),
         "plans": [{"slug": pl.slug, "title": pl.title, **pl.counts()} for pl in all_plans],
         "in_progress": [t.to_dict() for pl in all_plans for t in pl.tasks if t.status == "doing"],
         "benchmarks": benches,
@@ -132,6 +166,21 @@ def task_delete(task_id: str) -> str:
     """Delete a task with its notes and subtasks. Prefer task_update(status="dropped") to keep the history;
     delete only when the user asks."""
     return "deleted " + ", ".join(plans.remove_task(_project(), task_id))
+
+
+@tool
+def analytics_post(title: str, headline: str, body: str, metrics: dict | None = None, task: str | None = None,
+                   plan: str | None = None, benchmark: str | None = None, runs: list[str] | None = None,
+                   date: str | None = None) -> str:
+    """Post key results to the project's Analytics page (docs/analytics/). headline: one plain sentence with the
+    main number and its comparison. metrics: the 3 to 6 key numbers, name (with unit) -> value. body: markdown,
+    with charts as ```mermaid blocks (xychart-beta) or ```dsd-runs blocks, and ![[path.html]] to embed a report.
+    Confirm the numbers with the user before posting."""
+    from . import analytics
+
+    p = _project()
+    return "posted " + analytics.write_post(p, title, headline, body, metrics=metrics, task=task, plan=plan,
+                                            benchmark=benchmark, runs=runs, date=date)
 
 
 @tool

@@ -28,6 +28,25 @@ source: <link to the notes, ticket or doc it came from>
 ---
 ```
 
+## Titles
+
+Titles are what people scan in the dsd app, so make them short and informative.
+
+- **Plan titles** name the outcome in about 3 to 6 words: "Presets chosen by name", "Rules-aware target on main", not "Config and presets" or "Phase 2". The Goal's first sentence is shown under the title, so it carries the detail: one sentence, under about 25 words.
+- **Task titles** say what the step achieves for the product, in about 6 to 12 words, starting with the thing that changes: "Every reader gets its target from one resolver". Leave out PR numbers, branch names, file names and flags; put them in the task's notes.
+- Never reuse a title in the same project.
+
+## Diagrams
+
+Draw the change wherever a picture is quicker than prose. Use Mermaid code blocks (```` ```mermaid ````); the dsd app draws them.
+
+- **Flowcharts** (`flowchart LR`) for how data or control moves today and after the change. Keep to about 12 nodes; split larger ones. Mark what changes with `classDef changed stroke:#2a6fdb,stroke-width:3px` and `:::changed`, and what is new with a dashed border.
+- **Sequence diagrams** (`sequenceDiagram`) when the order of calls between services matters.
+- **Charts** (`xychart-beta`) for requirement targets, baselines and results: label the axis with units.
+- **The delivery plan** as a flow of steps (`S1 --> S2`), so dependencies and stacks are visible at a glance.
+- One sentence under each diagram says what to notice.
+- For something interactive, embed an explainer page with `![[designs/<slug>.html]]` (see `references/explainer.md`).
+
 ## Status values
 
 | Status | Meaning | Who sets it |
@@ -45,9 +64,9 @@ source: <link to the notes, ticket or doc it came from>
 - Every requirement says how it is checked and the target: a test, a benchmark metric with a threshold and direction, a query, or a manual check with who does it. "Works well" is not a requirement; "p95 solve time under 30 s on the estate benchmark" is.
 - Include what must not get worse (guardrails), not only what must improve.
 - Every step in the delivery plan has a "Done when": the requirement IDs it must meet or must not break, the tests, and the benchmark run with its threshold.
-- Checks are tasks: nested under their step, tagged `#check`, with `@req:R<n>` and `@benchmark:<name>` when a benchmark measures it. The last task in the plan checks every project requirement.
+- Tasks are high-level product steps: one task per step in the delivery plan, plus a final `Requirements met` task. Checks are not tasks. They are written in the step task's notes (`Done when: ...`), and their results are added there as notes when they run (`Checked R2: ...`).
 - A requirement measured by a benchmark needs a baseline run on the code before the change. If there is none, an early step records one.
-- A step is not done until its checks are done, with the result (numbers, run id) written on each check task.
+- A step is not done until every check in its notes has passed, with the result (numbers, run id) written as a note on the step.
 
 ## Decisions
 

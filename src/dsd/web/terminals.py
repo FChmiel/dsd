@@ -112,7 +112,7 @@ class TerminalManager:
             full_env["DSD_WORKTREE"] = worktree
         proc = subprocess.Popen(
             [shell, "-l", "-i"], cwd=cwd, env=full_env, stdin=slave, stdout=slave, stderr=slave,
-            start_new_session=True, close_fds=True,
+            start_new_session=True, close_fds=True, preexec_fn=_take_controlling_tty,
         )
         os.close(slave)
         os.set_blocking(master, False)
@@ -185,7 +185,11 @@ class TerminalManager:
         if term and not term.exited:
             _set_size(term.fd, rows, cols)
             try:
-                os.killpg(os.getpgid(term.proc.pid), signal.SIGWINCH)
+                pgrp = os.tcgetpgrp(term.fd)
+            except OSError:
+                pgrp = os.getpgid(term.proc.pid)
+            try:
+                os.killpg(pgrp, signal.SIGWINCH)
             except OSError:
                 pass
 
@@ -213,6 +217,12 @@ class TerminalManager:
     def close_all(self) -> None:
         for tid in list(self.terms):
             self.close(tid)
+
+
+def _take_controlling_tty() -> None:
+    """Runs in the child after setsid: make the PTY its controlling terminal, so the kernel tells the
+    foreground job (e.g. claude, which zsh runs in its own process group) about window size changes."""
+    fcntl.ioctl(0, termios.TIOCSCTTY, 0)
 
 
 def _set_size(fd: int, rows: int, cols: int) -> None:
