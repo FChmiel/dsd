@@ -116,7 +116,8 @@ def ui(
             os.kill(os.getpid(), signal.SIGTERM)  # graceful: uvicorn shutdown closes PTY sessions
 
         threading.Thread(target=watch_parent, args=(int(parent),), daemon=True).start()
-    uvicorn.run(create_app(), host="127.0.0.1", port=port, log_level="warning")
+    current = proj.root if proj and proj.is_worktree else None
+    uvicorn.run(create_app(current=current), host="127.0.0.1", port=port, log_level="warning")
 
 
 @app.command()
@@ -776,20 +777,47 @@ def _wt_guard(fn, *a, **kw):
 
 
 @wt_app.command("ls")
-def wt_ls(json: bool = typer.Option(False, "--json")) -> None:
-    """List the main checkout and worktrees with branch, dirty files and ahead/behind."""
+def wt_ls(json: bool = typer.Option(False, "--json"),
+          all: bool = typer.Option(False, "--all", "-a", help="Also list other worktrees of the repo you could adopt.")) -> None:
+    """List the main checkout and dsd's worktrees (created, adopted, or the one you're in) with status."""
     from . import worktrees as wt
 
-    rows = _wt_guard(wt.list_worktrees, _project())
+    p = _project()
+    rows = _wt_guard(wt.list_worktrees, p, include=[Path.cwd()])
+    others = _wt_guard(wt.candidates, p) if all else []
+    others = [c for c in others if c["path"] not in {r["path"] for r in rows}]
     if json:
-        return _emit_json(rows)
+        return _emit_json(rows + [{**c, "origin": None} for c in others])
     for w in rows:
         ab = "" if w["is_main"] or w.get("ahead") is None else f"  [green]↑{w['ahead']}[/] [yellow]↓{w['behind']}[/] vs {w['base']}"
         dirty = f"  [yellow]{w['dirty']} changed[/]" if w.get("dirty") else ""
         task = f"  [dim]{w['task']}[/]" if w.get("task") else ""
         console.print(f"{'★' if w['is_main'] else ' '} [bold]{w['name']:<24}[/] {w['branch'] or '(detached)':<28}{ab}{dirty}{task}")
         if not w["is_main"]:
-            console.print(f"    [dim]{w['path']}[/]")
+            origin = "" if w["origin"] == "dsd" else f"  [magenta]{w['origin']}[/]"
+            console.print(f"    [dim]{w['path']}[/]{origin}")
+    if others:
+        console.print("\n[bold]Not listed[/] [dim](adopt with: dsd wt adopt <path>)[/]")
+        for c in others:
+            console.print(f"  {c['branch'] or '(detached)':<36} [dim]{c['path']}[/]")
+
+
+@wt_app.command("adopt")
+def wt_adopt(path: Path = typer.Argument(..., help="An existing worktree of this repo (e.g. one made by Pane)."),
+             task: str = typer.Option(None, "--task", "-t", help="Link to a plan task, e.g. T-12.")) -> None:
+    """Add an existing worktree to dsd's list. dsd never deletes it unless you remove it explicitly."""
+    from . import worktrees as wt
+
+    w = _wt_guard(wt.adopt_worktree, _project(), str(path), plans.normalize_id(task) if task else None)
+    console.print(f"[green]adopted[/] {w['name']} ({w['branch'] or 'detached'})")
+
+
+@wt_app.command("hide")
+def wt_hide(name: str) -> None:
+    """Stop listing a worktree; its directory and branch are left alone."""
+    from . import worktrees as wt
+
+    console.print(f"[green]hidden[/] {_wt_guard(wt.hide_worktree, _project(), name)['hidden']}")
 
 
 @wt_app.command("new")

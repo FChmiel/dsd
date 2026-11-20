@@ -108,6 +108,8 @@ dsd ui .demo/churn-model
 By default, **+ New session** in the agent pane starts Claude in a **new git worktree** on branch `dsd/<name>`, so parallel agents never edit the same checkout. The launcher can also attach to an existing worktree or use the main checkout. "Work on this in a worktree" on a plan task creates (or reuses) a worktree named after the task.
 
 - Worktrees live in `~/.dsd/worktrees/<project>/<name>`.
+- Like Pane, dsd lists only the worktrees it owns: the ones it created, ones you adopted, and the worktree you started `dsd ui` from (marked *current*). A large repo's other worktrees stay out of the way. **Adopt existing worktree…** (or `dsd wt adopt <path>`) adds one, for example a Pane worktree. **Hide** (`dsd wt hide <name>`) stops listing it. dsd never deletes an adopted worktree unless you remove it explicitly.
+- Git status is checked only for listed worktrees, in parallel. A scoped project's status, Changes and commit list only cover its scope.
 - dsd copies the local files you list (by default `.env` and `.env.local`) into each new worktree. These copies are never shown as changes and never committed.
 - Plans, docs and runs are shared by every worktree. Experiment runs made inside a worktree are tagged with the worktree and branch.
 - **Changes** reviews a worktree's whole branch against its base: its commits, uncommitted edits and new files. Comments go to that worktree's agent.
@@ -122,7 +124,9 @@ copy = [".env", "data/local.parquet"]
 
 ```sh
 dsd wt new --task T-6        # prints the path:  cd "$(dsd wt new --task T-6)"
-dsd wt ls
+dsd wt ls [--all]            # --all also lists worktrees you could adopt
+dsd wt adopt ~/code/nory/worktrees/my-pane
+dsd wt hide my-pane
 dsd wt merge t-6-add-interaction-features [--squash]
 dsd wt rm sharp-orca --delete-branch
 ```

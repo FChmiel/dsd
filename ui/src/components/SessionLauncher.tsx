@@ -20,6 +20,7 @@ export interface Worktree {
   terminals?: string[];
   created?: number | null;
   managed: boolean;
+  origin: "main" | "dsd" | "adopted" | "current";
 }
 
 export function loadSessionDefault(): "new" | "main" {

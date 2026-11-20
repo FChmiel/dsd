@@ -15,6 +15,9 @@ from .ids import ulid
 from .project import Project
 
 MAX_LINES_PER_FILE = 4000
+MAX_UNTRACKED_BYTES = 2_000_000
+MAX_UNTRACKED_FILES = 300
+MAX_TOTAL_LINES = 20_000
 HUNK_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$")
 
 
@@ -93,9 +96,56 @@ def parse_diff(text: str) -> list[dict]:
     return files
 
 
+def _within_budget(files: list[dict]) -> list[dict]:
+    """Keep diff lines for files until MAX_TOTAL_LINES are used; later files keep only their summary."""
+    budget = MAX_TOTAL_LINES
+    for f in files:
+        n = sum(len(h["lines"]) for h in f["hunks"])
+        if n > budget:
+            f["hunks"], f["truncated"] = [], True
+            budget = 0
+        else:
+            budget -= n
+    return files
+
+
+def _spec(project: Project) -> list[str]:
+    return ["--", project.scope] if project.scope else []
+
+
+def _added_file(root: Path, rel: str, with_content: bool) -> dict | None:
+    entry = {"path": rel, "old_path": None, "status": "added", "binary": False, "hunks": [],
+             "truncated": not with_content, "additions": 0, "deletions": 0}
+    if not with_content:
+        return entry
+    try:
+        with open(root / rel, "rb") as fh:
+            data = fh.read(MAX_UNTRACKED_BYTES + 1)
+    except OSError:
+        return None
+    if b"\0" in data[:8000]:
+        entry["binary"] = True
+        return entry
+    lines = data[:MAX_UNTRACKED_BYTES].decode(errors="replace").splitlines()
+    entry["additions"] = len(lines)
+    entry["truncated"] = len(data) > MAX_UNTRACKED_BYTES or len(lines) > MAX_LINES_PER_FILE
+    if lines:
+        shown = lines[:MAX_LINES_PER_FILE]
+        entry["hunks"] = [{"header": f"@@ -0,0 +1,{len(lines)} @@",
+                           "lines": [{"t": "add", "old": None, "new": i + 1, "text": t} for i, t in enumerate(shown)]}]
+    return entry
+
+
+def change_count(project: Project, root: Path | None = None) -> int:
+    """Number of changed files (tracked and untracked) in `root`, from one `git status`."""
+    root = root or project.root
+    out = _git(root, "status", "--porcelain", "--untracked-files=all", *_spec(project))
+    return sum(1 for ln in out.splitlines() if ln.strip())
+
+
 def working_changes(project: Project, root: Path | None = None, base: str | None = None,
                     ignore: list[str] | None = None) -> dict:
-    """Uncommitted changes in `root` (default: the project checkout).
+    """Uncommitted changes in `root` (default: the project checkout), limited to the project's scope.
 
     With `base`, diff from merge-base(base, HEAD) instead of HEAD, so a worktree's review shows
     everything its agent did on the branch: commits plus uncommitted edits plus new files.
@@ -103,49 +153,45 @@ def working_changes(project: Project, root: Path | None = None, base: str | None
     root = root or project.root
     if not is_repo(root):
         return {"repo": False, "files": []}
+    spec = _spec(project)
     since = "HEAD"
     if base and has_head(root):
         mb = _git(root, "merge-base", base, "HEAD").strip()
         since = mb or "HEAD"
     if has_head(root):
-        tracked = _git(root, "diff", since, "--no-color", "-M", "--no-ext-diff")
+        tracked = _git(root, "diff", since, "--no-color", "-M", "--no-ext-diff", *spec)
     else:
-        tracked = _git(root, "diff", "--cached", "--no-color", "--no-ext-diff")
+        tracked = _git(root, "diff", "--cached", "--no-color", "--no-ext-diff", *spec)
     files = parse_diff(tracked)
-    untracked = [u for u in _git(root, "ls-files", "--others", "--exclude-standard").splitlines() if u]
+    untracked = [u for u in _git(root, "ls-files", "--others", "--exclude-standard", *spec).splitlines() if u]
     if not has_head(root):
         staged = {f["path"] for f in files}
-        untracked += [u for u in _git(root, "diff", "--name-only").splitlines() if u and u not in staged]
-    for path in untracked:
-        p = root / path
-        if not p.is_file():
-            continue
-        d = _git(root, "diff", "--no-index", "--no-color", "--", "/dev/null", path, ok_codes=(0, 1))
-        parsed = parse_diff(d)
-        for f in parsed:
-            f["path"] = path
-            f["status"] = "added"
-        files.extend(parsed)
+        untracked += [u for u in _git(root, "diff", "--name-only", *spec).splitlines() if u and u not in staged]
+    for i, path in enumerate(untracked):
+        if (root / path).is_file():
+            entry = _added_file(root, path, with_content=i < MAX_UNTRACKED_FILES)
+            if entry:
+                files.append(entry)
     if ignore:
         from .worktrees import is_bootstrap
 
         files = [f for f in files if not is_bootstrap(f["path"], ignore)]
     files.sort(key=lambda f: f["path"])
-    return {"repo": True, "ref": None, "base": base, "since": since, "files": files}
+    return {"repo": True, "ref": None, "base": base, "since": since, "files": _within_budget(files)}
 
 
 def commit_changes(project: Project, ref: str) -> dict:
     if not re.fullmatch(r"[0-9a-fA-F]{4,40}|HEAD(~\d+)?", ref):
         raise ValueError("bad ref")
-    text = _git(project.root, "show", ref, "--format=", "--no-color", "-M", "--no-ext-diff")
+    text = _git(project.root, "show", ref, "--format=", "--no-color", "-M", "--no-ext-diff", *_spec(project))
     subject = _git(project.root, "show", "-s", "--format=%h %s", ref).strip()
-    return {"repo": True, "ref": ref, "subject": subject, "files": parse_diff(text)}
+    return {"repo": True, "ref": ref, "subject": subject, "files": _within_budget(parse_diff(text))}
 
 
 def recent_commits(project: Project, n: int = 30) -> list[dict]:
     if not has_head(project.root):
         return []
-    out = _git(project.root, "log", f"-{n}", "--format=%H%x1f%h%x1f%ad%x1f%an%x1f%s", "--date=iso-strict")
+    out = _git(project.root, "log", f"-{n}", "--format=%H%x1f%h%x1f%ad%x1f%an%x1f%s", "--date=iso-strict", *_spec(project))
     commits = []
     for line in out.splitlines():
         parts = line.split("\x1f")
