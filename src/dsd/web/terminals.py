@@ -100,15 +100,15 @@ class TerminalManager:
         shell = os.environ.get("SHELL", "/bin/zsh")
         master, slave = pty.openpty()
         _set_size(master, 32, 120)
-        full_env = {**os.environ, **(env or {}), "TERM": "xterm-256color", "COLORTERM": "truecolor",
-                    "DSD_PROJECT_ROOT": cwd}
+        full_env = {**os.environ, **(env or {}), "TERM": "xterm-256color", "COLORTERM": "truecolor"}
         full_env.pop("DSD_RUN_DIR", None)
+        full_env.pop("DSD_PROJECT_ROOT", None)
         from ..appsupport import ensure_app_shim
 
         shim_dir = ensure_app_shim()  # packaged app: make `dsd` (and so `dsd mcp`) resolvable in the session
         if shim_dir:
             full_env["PATH"] = f"{shim_dir}:{full_env.get('PATH', '/usr/bin:/bin')}"
-        if worktree:  # informational; dsd finds the worktree project via DSD_PROJECT_ROOT=cwd
+        if worktree:  # informational; dsd finds the worktree's project from the cwd
             full_env["DSD_WORKTREE"] = worktree
         proc = subprocess.Popen(
             [shell, "-l", "-i"], cwd=cwd, env=full_env, stdin=slave, stdout=slave, stderr=slave,

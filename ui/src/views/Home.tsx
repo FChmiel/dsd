@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { del, fmtNum, fmtTime, patch, post, useApi, type Project } from "../api";
+import { del, fmtNum, fmtTime, patch, post, projectPath, useApi, type Project } from "../api";
 import { href, linkProps, navigate } from "../router";
 import { Icon } from "../components/Icon";
 import { CliCard } from "../components/CliCard";
@@ -56,7 +56,7 @@ export function HomePage({ projects, reloadProjects }: { projects: Project[]; re
           {projects.map((p) => {
             const s = d?.projects.find((x: any) => x.id === p.id);
             return (
-              <a key={p.id} {...linkProps(href(p.id, "overview"))} title={p.root}>
+              <a key={p.id} {...linkProps(href(p.id, "overview"))} title={projectPath(p)}>
                 <span className="proj-dot" /> {p.name}
                 {s?.doing?.length ? <span className="count">{s.doing.length}</span> : null}
               </a>
@@ -378,10 +378,11 @@ function AddProject({ reload }: { reload: () => void }) {
   const [path, setPath] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [needsInit, setNeedsInit] = useState(false);
+  const [scope, setScope] = useState("");
   const add = async (init = false, override?: string) => {
     setErr(null);
     try {
-      const p = await post<Project>("/api/projects", { path: override ?? path, init });
+      const p = await post<Project>("/api/projects", { path: override ?? path, init, scope: init && scope.trim() ? scope.trim() : null });
       reload();
       navigate(href(p.id, "overview"));
     } catch (e: any) {
@@ -400,9 +401,18 @@ function AddProject({ reload }: { reload: () => void }) {
           if (dir) { setPath(dir); setNeedsInit(false); add(false, dir); }
         }}>Choose folder…</button>}
         <button className="btn primary" onClick={() => add()}>Open</button>
-        {needsInit && <button className="btn" onClick={() => add(true)}>Set up dsd here</button>}
       </div>
-      {err && <div className="card-body" style={{ paddingTop: 0 }}><div className={needsInit ? "muted" : "error-box"}>{needsInit ? "Not a dsd project yet. Set it up?" : err}</div></div>}
+      {needsInit && (
+        <div className="card-body" style={{ paddingTop: 0, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <span className="muted" style={{ flexBasis: "100%" }}>
+            No dsd project for this folder yet. Start one? Its docs, plans and runs are kept in <code>~/.dsd</code>; nothing is written to the repo.
+          </span>
+          <input className="input" style={{ flex: 1, minWidth: 200 }} placeholder="Scope: subdirectory, optional (e.g. apps/churn)" value={scope}
+            onChange={(e) => setScope(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add(true)} />
+          <button className="btn" onClick={() => add(true)}>Start a dsd project</button>
+        </div>
+      )}
+      {err && !needsInit && <div className="card-body" style={{ paddingTop: 0 }}><div className="error-box">{err}</div></div>}
     </div>
   );
 }

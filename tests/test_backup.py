@@ -6,15 +6,15 @@ from typer.testing import CliRunner
 from dsd import backup as bk
 from dsd.cli import app
 from dsd.init import init_project
-from dsd.project import load_project
+from dsd.project import find_project
 
 
 def test_local_snapshots_hardlink_and_restore(tmp_path):
     proj_dir, store = tmp_path / "proj", tmp_path / "store"
-    init_project(proj_dir)
-    p = load_project(proj_dir)
+    proj_dir.mkdir()
+    p = init_project(proj_dir).project
     bk.add_local_target(p, str(store))
-    p = load_project(proj_dir)
+    p = find_project(proj_dir)
     (p.docs_path / "notes/a.md").write_text("A")
     t = bk.targets(p)[0]
     r1 = t.push(p, bk.include_paths(p, p.backup[0]))
@@ -32,6 +32,7 @@ def test_local_snapshots_hardlink_and_restore(tmp_path):
 
 
 def test_cli_backup(tmp_path, monkeypatch):
+    (tmp_path / "proj").mkdir()
     init_project(tmp_path / "proj")
     monkeypatch.chdir(tmp_path / "proj")
     r = CliRunner()

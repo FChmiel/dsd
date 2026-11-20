@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 import dsd
 from dsd import review, worktrees
 from dsd.init import init_project
-from dsd.project import load_project
+from dsd.project import find_project
 from dsd.tracking.bundle import Bundle
 from dsd.web.server import create_app
 
@@ -23,29 +23,26 @@ def repo(tmp_path, monkeypatch):
     root = tmp_path / "proj"
     root.mkdir()
     git(root, "init", "-q", "-b", "main")
-    init_project(root, name="wt-demo")
+    p = init_project(root, name="wt-demo").project
     (root / "train.py").write_text("lr = 0.1\nepochs = 10\n")
     (root / ".env").write_text("SECRET=1\n")  # untracked local file worktrees should get a copy of
-    (root / ".gitignore").write_text((root / ".gitignore").read_text() + ".env\n")
-    # commit everything except .mcp.json, so bootstrap has something dsd-specific to copy
+    (root / ".gitignore").write_text(".env\n")
     git(root, "add", "-A")
-    git(root, "reset", "-q", ".mcp.json")
     git(root, "commit", "-qm", "init")
     monkeypatch.delenv("DSD_RUN_DIR", raising=False)
-    return load_project(root)
+    return p
 
 
 def test_create_list_and_bootstrap(repo):
-    gi = repo.root / ".gitignore"
-    gi.write_text(gi.read_text().replace(".dsd/worktrees.json\n", ""))  # simulate a project from before worktrees
     w = worktrees.create_worktree(repo, task="T-6", task_title="Add interaction features")
     assert w["name"] == "t-6-add-interaction-features" and w["branch"] == "dsd/t-6-add-interaction-features"
     assert w["base"] == "main" and w["task"] == "T-6"
     path = Path(w["path"])
     assert path.is_dir() and str(path).startswith(str(worktrees.base_dir(repo)))
-    assert ".mcp.json" in w["copied"] and ".env" in w["copied"]
+    assert w["copied"] == [".env"]
     assert (path / ".env").read_text() == "SECRET=1\n"
-    assert ".dsd/worktrees.json" in gi.read_text()  # managed block refreshed
+    assert (repo.data_dir / "worktrees.json").is_file()
+    assert git(repo.root, "status", "--porcelain") == ""
     # same name again gets a suffix
     w2 = worktrees.create_worktree(repo, name="t-6-add-interaction-features")
     assert w2["name"] == "t-6-add-interaction-features-2"
@@ -55,8 +52,8 @@ def test_create_list_and_bootstrap(repo):
 
 def test_worktree_project_shares_state(repo, monkeypatch):
     w = worktrees.create_worktree(repo, name="exp")
-    wp = load_project(Path(w["path"]))
-    assert wp.is_worktree and wp.main_root == repo.root
+    wp = find_project(Path(w["path"]))
+    assert wp.is_worktree and wp.repo == repo.root and wp.id == repo.id
     assert wp.runs_path == repo.runs_path and wp.index_path == repo.index_path
     monkeypatch.setenv("DSD_PROJECT_ROOT", w["path"])
     with dsd.run("from-wt") as r:
@@ -114,7 +111,7 @@ def test_remove(repo):
 
 
 def test_api_claude_session_in_new_worktree(repo):
-    with TestClient(create_app([repo.root])) as c:
+    with TestClient(create_app()) as c:
         t = c.post(f"/api/p/{repo.id}/terminals",
                    json={"kind": "shell", "new_worktree": {"task": "T-1", "task_title": "Write goal"}}).json()
         assert t["worktree"] == "t-1-write-goal" and t["branch"] == "dsd/t-1-write-goal"

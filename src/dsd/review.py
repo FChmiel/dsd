@@ -1,6 +1,6 @@
 """Diff review: what changed (working tree or a commit), and line comments to hand back to an agent.
 
-Comments live in .dsd/review.json so both the app and agents (via MCP) see the same list.
+Comments live in the project's data dir (review.json) so both the app and agents (via MCP) see the same list.
 """
 
 from __future__ import annotations
@@ -157,7 +157,7 @@ def recent_commits(project: Project, n: int = 30) -> list[dict]:
 # ---------------------------------------------------------------- comments
 
 def _comments_file(project: Project) -> Path:
-    return project.state_root / ".dsd" / "review.json"
+    return project.data_dir / "review.json"
 
 
 def load_comments(project: Project) -> list[dict]:

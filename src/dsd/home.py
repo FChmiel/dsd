@@ -16,8 +16,8 @@ import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from . import plans, registry, review
-from .project import Project
+from . import plans, review
+from .project import Project, all_projects, dsd_home
 
 DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 DAY_NAMES = {d: i for i, d in enumerate(DAYS)} | {
@@ -43,8 +43,8 @@ edit freely. Syntax: `- [ ] T-1 Send David the numbers @due:2026-11-11 @project:
 # ---------------------------------------------------------------- storage
 
 def home_project() -> Project:
-    root = registry.home() / "home"
-    p = Project(root=root, id="home", name="Home", docs_dir="docs")
+    root = dsd_home() / "home"
+    p = Project(id="home", name="Home", data_dir=root, repo=root, root=root)
     if not p.main_plan_path.exists():
         p.main_plan_path.parent.mkdir(parents=True, exist_ok=True)
         p.main_plan_path.write_text(INBOX_TEMPLATE)
@@ -164,7 +164,7 @@ def list_todos(include_done_days: int = 1) -> list[dict]:
 
 def add_todo(text: str, due: str | None = None, project: str | None = None) -> dict:
     hp = home_project()
-    names = [p.name for p in registry.projects()]
+    names = [p.name for p in all_projects()]
     q = parse_quick(text, names)
     attrs = {}
     if due or q["due"]:
@@ -272,7 +272,7 @@ def dashboard(terminals_by_project: dict[str, list[dict]] | None = None) -> dict
     today = date.today()
     todos = list_todos()
     projects = []
-    for p in registry.projects():
+    for p in all_projects():
         try:
             projects.append(project_summary(p, (terminals_by_project or {}).get(p.id, [])))
         except Exception as e:  # one broken project shouldn't blank the home page

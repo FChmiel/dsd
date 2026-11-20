@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { del, fmtTime, post, useApi } from "../api";
+import { del, fmtTime, post, tildify, useApi } from "../api";
 import { useApp } from "../context";
 import { href, linkProps, navigate } from "../router";
 import type { Worktree } from "../components/SessionLauncher";
@@ -87,7 +87,7 @@ export function Worktrees() {
       </div>
       <p className="muted" style={{ fontSize: 12, marginTop: 12 }}>
         Experiment runs from any worktree land in this project's shared run history (tagged with the worktree), so leaderboards compare across branches.
-        Configure a setup step and extra files to copy in <code>.dsd/project.toml</code>: <code>[worktree] setup = "uv sync"</code>, <code>copy = [".env"]</code>.
+        Configure a setup step and extra files to copy in <code>{tildify(project.data_dir)}/project.toml</code>: <code>[worktree] setup = "uv sync"</code>, <code>copy = [".env"]</code>.
       </p>
     </div>
   );

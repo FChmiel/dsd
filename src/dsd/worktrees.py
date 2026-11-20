@@ -2,10 +2,10 @@
 
 Each Claude session can get its own worktree + branch (dsd/<name>) so agents never trample each
 other's working copies. Worktrees live under ~/.dsd/worktrees/<project>/<name>; metadata (base
-branch, linked task) is kept in the main checkout's .dsd/worktrees.json.
+branch, linked task) is kept in the project's data dir (worktrees.json).
 
-Shared state stays central: a run started inside a worktree is stored in the main checkout's
-.dsd/runs (see Project.state_root), tagged with the worktree and branch.
+Shared state stays central: a run started inside a worktree is stored in the project's data dir,
+tagged with the worktree and branch.
 """
 
 from __future__ import annotations
@@ -19,12 +19,10 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import registry
-from .project import PROJECT_FILE, Project
+from .project import Project, dsd_home
 
 BRANCH_PREFIX = "dsd/"
 DEFAULT_COPY = [".env", ".env.local"]
-DSD_FILES = [PROJECT_FILE, ".dsd/benchmarks.toml", ".mcp.json", "CLAUDE.md", ".claude/skills"]
 
 _ADJ = ["amber", "brisk", "calm", "deft", "eager", "fleet", "gentle", "keen", "lucid", "nimble", "quiet", "rapid",
         "sharp", "steady", "swift", "tidy", "vivid", "wise"]
@@ -61,11 +59,11 @@ def random_name() -> str:
 
 
 def base_dir(project: Project) -> Path:
-    return registry.home() / "worktrees" / f"{slugify(project.name, 30)}-{project.id[-6:].lower()}"
+    return dsd_home() / "worktrees" / f"{slugify(project.name, 30)}-{project.id[-6:].lower()}"
 
 
 def _meta_file(project: Project) -> Path:
-    return project.state_root / ".dsd" / "worktrees.json"
+    return project.data_dir / "worktrees.json"
 
 
 def _load_meta(project: Project) -> dict[str, dict]:
@@ -82,7 +80,7 @@ def _save_meta(project: Project, meta: dict[str, dict]) -> None:
 
 
 def _main(project: Project) -> Path:
-    return project.state_root
+    return project.repo
 
 
 def current_branch(root: Path) -> str | None:
@@ -117,7 +115,7 @@ def _porcelain(project: Project) -> list[dict]:
 
 
 def is_bootstrap(rel: str, copied: list[str]) -> bool:
-    """Files dsd copied into the worktree (wiring, .env): not the agent's changes, never committed."""
+    """Files dsd copied into the worktree (e.g. .env): not the agent's changes, never committed."""
     rel = rel.strip().strip('"').rstrip("/")
     return any(rel == c or rel.startswith(c.rstrip("/") + "/") for c in copied)
 
@@ -176,9 +174,9 @@ def get_worktree(project: Project, name: str | None) -> dict:
 
 
 def _bootstrap(project: Project, src: Path, dest: Path) -> list[str]:
-    """Copy dsd wiring and configured local files (e.g. .env) that git doesn't carry into the worktree."""
+    """Copy configured local files (e.g. .env) that git doesn't carry into the worktree."""
     copied = []
-    copy = list(DSD_FILES) + list(project.worktree_cfg.get("copy", DEFAULT_COPY))
+    copy = list(project.worktree_cfg.get("copy", DEFAULT_COPY))
     for rel in copy:
         s, d = src / rel, dest / rel
         if not s.exists() or d.exists():
@@ -216,9 +214,6 @@ def create_worktree(project: Project, name: str | None = None, base: str | None 
     branch = f"{BRANCH_PREFIX}{name}"
     path = root / name
     root.mkdir(parents=True, exist_ok=True)
-    from .init import refresh_gitignore
-
-    refresh_gitignore(project)  # make sure .dsd/worktrees.json is ignored in older projects
     _git(main, "worktree", "add", "-b", branch, str(path), base)
     copied = _bootstrap(project, main, path)
     meta[name] = {"path": str(path.resolve()), "branch": branch, "base": base, "task": task,

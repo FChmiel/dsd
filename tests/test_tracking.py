@@ -9,7 +9,6 @@ from typer.testing import CliRunner
 import dsd
 from dsd.cli import app
 from dsd.init import init_project
-from dsd.project import load_project
 from dsd.tracking.bundle import Bundle, flatten
 from dsd.tracking.execute import default_name, exec_command
 from dsd.tracking.index import Index
@@ -19,8 +18,7 @@ from dsd.tracking.query import Where, compare, leaderboard, list_runs, set_bench
 @pytest.fixture
 def project(tmp_path, monkeypatch):
     subprocess.run(["git", "init", "-q", "-b", "main"], cwd=tmp_path, check=True)
-    init_project(tmp_path, name="churn")
-    p = load_project(tmp_path)
+    p = init_project(tmp_path, name="churn").project
     monkeypatch.setenv("DSD_PROJECT_ROOT", str(tmp_path))
     monkeypatch.delenv("DSD_RUN_DIR", raising=False)
     monkeypatch.delenv("DSD_TASK", raising=False)
@@ -40,6 +38,7 @@ def make_runs(seeds=(0, 1, 2)):
 
 
 def test_sdk_writes_bundle(project):
+    (project.root / "train.py").write_text("x = 1\n")
     with dsd.run("baseline", benchmark="b1", task="T-1", params={"model": {"eta": 0.1}}, tags=["x"],
                  datasets=[dsd.dataset(name="train", uri="https://github.com/o/d")]) as r:
         r.log({"loss": 0.5}, step=0)
