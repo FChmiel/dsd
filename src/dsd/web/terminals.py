@@ -24,6 +24,10 @@ from pathlib import Path
 from ..ids import ulid
 
 SCROLLBACK = 256 * 1024
+HIGH_WATER = 1_000_000
+LOW_WATER = 250_000
+MAX_FRAME = 256 * 1024
+FRAME_DELAY = 0.006
 _claude_cmd: str | None = None
 
 
@@ -84,6 +88,15 @@ def resolve_claude_command() -> str:
     return _claude_cmd
 
 
+class Listener:
+    """One browser connection: its outgoing queue and, once it acknowledges output, how much is unacknowledged."""
+
+    def __init__(self) -> None:
+        self.queue: asyncio.Queue = asyncio.Queue()
+        self.flow = False
+        self.unacked = 0
+
+
 @dataclass
 class Terminal:
     id: str
@@ -97,6 +110,7 @@ class Terminal:
     buffer: bytearray = field(default_factory=bytearray)
     listeners: set = field(default_factory=set)
     exited: bool = False
+    paused: bool = False
     worktree: str | None = None  # None = main checkout
     branch: str | None = None
 
@@ -149,20 +163,50 @@ class TerminalManager:
         return term
 
     def _on_readable(self, term: Terminal) -> None:
-        try:
-            data = os.read(term.fd, 65536)
-        except BlockingIOError:
+        chunks: list[bytes] = []
+        size, ended = 0, False
+        while size < MAX_FRAME:
+            try:
+                piece = os.read(term.fd, 65536)
+            except BlockingIOError:
+                break
+            except OSError:
+                piece = b""
+            if not piece:
+                ended = True
+                break
+            chunks.append(piece)
+            size += len(piece)
+        if not chunks:
+            if ended:
+                self._mark_exited(term)
             return
-        except OSError:
-            data = b""
-        if not data:
-            self._mark_exited(term)
-            return
+        data = b"".join(chunks)
         term.buffer.extend(data)
         if len(term.buffer) > SCROLLBACK:
             del term.buffer[: len(term.buffer) - SCROLLBACK]
-        for q in list(term.listeners):
-            q.put_nowait(data)
+        for listener in list(term.listeners):
+            listener.queue.put_nowait(data)
+            if listener.flow:
+                listener.unacked += len(data)
+        if not term.paused and any(lst.flow and lst.unacked > HIGH_WATER for lst in term.listeners):
+            asyncio.get_running_loop().remove_reader(term.fd)
+            term.paused = True
+        if ended:
+            self._mark_exited(term)
+
+    def ack(self, term: Terminal, listener: Listener, n: int) -> None:
+        listener.unacked = max(0, listener.unacked - n)
+        self._resume_if_drained(term)
+
+    def detach(self, term: Terminal, listener: Listener) -> None:
+        term.listeners.discard(listener)
+        self._resume_if_drained(term)
+
+    def _resume_if_drained(self, term: Terminal) -> None:
+        if term.paused and not term.exited and all(not lst.flow or lst.unacked < LOW_WATER for lst in term.listeners):
+            term.paused = False
+            asyncio.get_running_loop().add_reader(term.fd, self._on_readable, term)
 
     def _mark_exited(self, term: Terminal) -> None:
         if term.exited:
@@ -174,9 +218,9 @@ class TerminalManager:
             pass
         msg = b"\r\n\x1b[2m[process exited]\x1b[0m\r\n"
         term.buffer.extend(msg)
-        for q in list(term.listeners):
-            q.put_nowait(msg)
-            q.put_nowait(None)
+        for listener in list(term.listeners):
+            listener.queue.put_nowait(msg)
+            listener.queue.put_nowait(None)
 
     def write(self, tid: str, data: bytes) -> None:
         term = self.terms.get(tid)

@@ -53,8 +53,13 @@ export function Worktrees() {
                     <b className="wt-name" title={w.origin === "dsd" || w.origin === "adopted" ? "Double-click to rename" : undefined}
                       onDoubleClick={() => (w.origin === "dsd" || w.origin === "adopted") && setPanel({ name: w.name, kind: "rename" })}>{w.name}</b>
                   )}
+                  {!w.is_main && !!w.base_stale && (
+                    <span className="muted" style={{ fontSize: 11.5 }} title={`Your local ${w.base} is ${w.base_stale} commits behind ${w.base_ref ?? "its remote"}; run git pull in the main checkout to update it`}>
+                      local {w.base} is {w.base_stale} behind
+                    </span>
+                  )}
                   {w.auto_named && <span className="muted" style={{ fontSize: 11.5 }} title="Claude renames it once it knows the task, or double-click to name it">auto-named</span>}
-                  <span className="mono dim" style={{ fontSize: 12 }}>{w.branch ?? "(detached)"}{w.base ? <span className="muted"> ← {w.base}</span> : null}</span>
+                  <span className="mono dim" style={{ fontSize: 12 }}>{w.branch ?? "(detached)"}{w.base ? <span className="muted" title={w.base_ref && w.base_ref !== w.base ? `Compared with ${w.base_ref}: the remote copy of ${w.base}, which this branch is built on` : undefined}> ← {w.base_ref ?? w.base}</span> : null}</span>
                   {(w.origin === "adopted" || w.origin === "current") && (
                     <span className="pill" title={w.origin === "current" ? "The worktree you started dsd from. Adopt it to keep it listed." : "Created outside dsd (e.g. by Pane). dsd won't delete it unless you remove it."}>
                       {w.origin}

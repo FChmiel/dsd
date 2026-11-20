@@ -22,7 +22,7 @@ from ..init import init_project
 from ..project import Project, ProjectNotFound, all_projects, checkout_of, find_project
 from ..tracking.index import Index
 from ..tracking.query import QueryError, compare, leaderboard, list_runs, load_bench_specs, set_bench_spec
-from .terminals import TerminalManager
+from .terminals import FRAME_DELAY, MAX_FRAME, Listener, TerminalManager
 
 DIST = Path(__file__).parent / "dist"
 
@@ -42,6 +42,7 @@ def create_app(current: Path | None = None) -> FastAPI:
         terms.close_all()
 
     app = FastAPI(title="dsd", version=__version__, lifespan=lifespan)
+    app.state.terminals = terms
 
     # ------------------------------------------------------------ helpers
     def get_project(pid: str) -> Project:
@@ -631,13 +632,14 @@ def create_app(current: Path | None = None) -> FastAPI:
         if term is None:
             await ws.close(code=4404)
             return
-        q: asyncio.Queue = asyncio.Queue()
+        listener = Listener()
+        q = listener.queue
         if term.buffer:
             await ws.send_bytes(bytes(term.buffer))
         if term.exited:
             await ws.close()
             return
-        term.listeners.add(q)
+        term.listeners.add(listener)
 
         async def pump():
             while True:
@@ -645,7 +647,20 @@ def create_app(current: Path | None = None) -> FastAPI:
                 if data is None:
                     await ws.close()
                     return
-                await ws.send_bytes(data)
+                parts, size, ended = [data], len(data), False
+                if q.empty():
+                    await asyncio.sleep(FRAME_DELAY)
+                while size < MAX_FRAME and not q.empty():
+                    more = q.get_nowait()
+                    if more is None:
+                        ended = True
+                        break
+                    parts.append(more)
+                    size += len(more)
+                await ws.send_bytes(b"".join(parts))
+                if ended:
+                    await ws.close()
+                    return
 
         sender = asyncio.create_task(pump())
         try:
@@ -663,12 +678,16 @@ def create_app(current: Path | None = None) -> FastAPI:
                         continue
                     if ctl.get("type") == "resize":
                         terms.resize(tid, int(ctl["rows"]), int(ctl["cols"]))
+                    elif ctl.get("type") == "hello":
+                        listener.flow = bool(ctl.get("flow"))
+                    elif ctl.get("type") == "ack":
+                        terms.ack(term, listener, int(ctl.get("bytes", 0)))
                     elif ctl.get("type") == "input":
                         terms.write(tid, ctl["data"].encode())
         except (WebSocketDisconnect, RuntimeError):
             pass
         finally:
-            term.listeners.discard(q)
+            terms.detach(term, listener)
             sender.cancel()
 
     # ------------------------------------------------------------ UI

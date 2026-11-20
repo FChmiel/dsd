@@ -326,3 +326,45 @@ def test_api_rename_updates_open_sessions(repo):
         r = c.post(f"/api/p/{repo.id}/worktrees/named-elsewhere/rename", json={"name": "via api"})
         assert r.status_code == 200 and r.json()["name"] == "via-api"
         assert c.get(f"/api/p/{repo.id}/terminals").json()[0]["worktree"] == "via-api"
+
+
+@pytest.fixture
+def stale_main(repo, tmp_path):
+    remote = tmp_path / "remote.git"
+    git(tmp_path, "init", "-q", "--bare", "-b", "main", str(remote))
+    git(repo.root, "remote", "add", "origin", str(remote))
+    git(repo.root, "push", "-q", "-u", "origin", "main")
+    other = tmp_path / "other"
+    git(tmp_path, "clone", "-q", str(remote), str(other))
+    for i in range(3):
+        (other / f"merged_{i}.py").write_text(f"x = {i}\n")
+        git(other, "add", "-A")
+        git(other, "commit", "-qm", f"merged PR {i}")
+    git(other, "push", "-q", "origin", "main")
+    return repo
+
+
+def test_new_worktrees_start_from_the_latest_remote_main(stale_main):
+    repo = stale_main
+    w = worktrees.create_worktree(repo, name="fresh")
+    remote_head = git(repo.root, "rev-parse", "origin/main").strip()
+    assert git(Path(w["path"]), "rev-parse", "HEAD").strip() == remote_head
+    assert git(repo.root, "rev-parse", "main").strip() != remote_head
+    st = worktrees.list_worktrees(repo)[1]
+    assert st["base_ref"] == "origin/main" and st["ahead"] == 0 and st["behind"] == 0
+    assert st["base_stale"] == 3
+    ch = review.working_changes(repo, Path(w["path"]), base="main")
+    assert ch["files"] == [] and ch["base"] == "origin/main"
+    assert review.change_count(repo, Path(w["path"]), base="main") == 0
+
+
+def test_worktrees_on_local_main_still_compare_with_local_main(stale_main):
+    repo = stale_main
+    w = worktrees.create_worktree(repo, name="old", base="main", fetch=False)
+    Path(w["path"], "train.py").write_text("lr = 5\n")
+    git(Path(w["path"]), "commit", "-qam", "tweak")
+    git(repo.root, "fetch", "-q", "origin")
+    st = next(x for x in worktrees.list_worktrees(repo) if x["name"] == "old")
+    assert st["ahead"] == 1 and st["base_ref"] in ("main", "origin/main")
+    ch = review.working_changes(repo, Path(w["path"]), base="main")
+    assert [f["path"] for f in ch["files"]] == ["train.py"]
