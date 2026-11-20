@@ -50,9 +50,10 @@ def test_init_writes_nothing_to_the_repo(repo):
 
 def test_init_is_idempotent_per_repo_and_scope(repo):
     first = init_project(repo, name="churn")
-    again = init_project(repo, name="ignored")
+    again = init_project(repo)
     assert again.project.id == first.project.id and again.project.name == "churn"
     assert not again.changed
+    assert init_project(repo, name="churn").project.id == first.project.id
     scoped = init_project(repo, scope="apps/churn")
     assert scoped.project.id != first.project.id
     assert [p.id for p in all_projects()] == sorted([first.project.id, scoped.project.id])
@@ -127,3 +128,56 @@ def test_not_found_outside_any_project(repo, tmp_path):
     other.mkdir()
     with pytest.raises(ProjectNotFound):
         find_project(other)
+
+
+def test_several_named_projects_on_one_repo(repo):
+    first = init_project(repo, name="mono").project
+    work = init_project(repo, name="staff-on-floor").project
+    assert work.id != first.id and work.repo == first.repo and work.scope is None
+    assert init_project(repo, name="staff-on-floor").project.id == work.id
+    assert init_project(repo).project.id == first.id
+    assert find_project(repo).id == first.id
+    assert find_project(repo / "apps" / "churn").id == first.id
+
+
+def test_set_default_changes_the_main_checkout_project(repo):
+    from dsd.init import set_default
+
+    first = init_project(repo, name="mono").project
+    work = init_project(repo, name="staff-on-floor").project
+    set_default(work)
+    assert find_project(repo).id == work.id
+    assert init_project(repo).project.id == work.id
+    set_default(first)
+    assert find_project(repo).id == first.id
+    assert [p.default for p in all_projects()] == [True, False]
+
+
+def test_worktree_owner_wins_over_the_default(repo):
+    from dsd import worktrees
+
+    init_project(repo, name="mono")
+    work = init_project(repo, name="staff-on-floor").project
+    w = worktrees.create_worktree(work, name="sof")
+    p = find_project(Path(w["path"]) / "apps" / "churn")
+    assert p.id == work.id and p.root == Path(w["path"]) and p.is_worktree
+
+
+def test_move_worktree_between_projects(repo, tmp_path):
+    from dsd import worktrees
+
+    mono = init_project(repo, name="mono").project
+    work = init_project(repo, name="staff-on-floor").project
+    w = worktrees.create_worktree(mono, name="sof")
+    assert find_project(Path(w["path"])).id == mono.id
+    moved = worktrees.move_worktree(mono, "sof", work)
+    assert moved["name"] == "sof" and moved["origin"] == "dsd"
+    assert find_project(Path(w["path"])).id == work.id
+    assert [x["name"] for x in worktrees.list_worktrees(mono)] == ["main"]
+    assert [x["name"] for x in worktrees.list_worktrees(work)] == ["main", "sof"]
+    assert worktrees.candidates(mono) == []
+    assert [x["name"] for x in worktrees.list_worktrees(mono, include=[Path(w["path"])])] == ["main"]
+    (tmp_path / "elsewhere").mkdir()
+    other = init_project(tmp_path / "elsewhere").project
+    with pytest.raises(worktrees.WorktreeError):
+        worktrees.move_worktree(work, "sof", other)

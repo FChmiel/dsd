@@ -5,7 +5,14 @@ An agentic development platform for data scientists: project **plans and docs**,
 - **Plans:** markdown checklists with project-wide task ids (`T-12`). There's one central plan plus sub-plans, and edits only change the characters they need to.
 - **Docs:** decisions, notes and HTML reports live in the project's `docs/` folder. Docs support live `dsd-runs` tables and `![[report.html]]` embeds.
 - **Experiments:** use `dsd.run(...)` or `dsd exec -- <cmd>`. Each run records params, metrics, info and HTML artifacts, along with its git state, command and dataset references. Benchmarks rank runs, and grouped leaderboards show mean ± std across seeds.
-- **Agents:** `dsd setup` registers the dsd MCP server for your user and installs five Claude Code skills: `/dsd-plan`, `/dsd-next-task`, `/dsd-run-experiment`, `/dsd-distill` and `/dsd-report`.
+- **Agents:** `dsd setup` registers the dsd MCP server for your user and installs the dsd Claude Code skills:
+  - `/dsd-plan` plans work with you: a step-by-step design doc, then tasks once you agree them.
+  - `/dsd-develop` picks up the next task, checks it against recent PRs and code, shows an HTML explainer of what will change, then builds it.
+  - `/dsd-review` reviews a GitHub PR: a summary, your focus areas, then an HTML explainer with diagrams, widgets and charts of the evidence, with blockers and changes at the end.
+  - `/dsd-benchmark` records a finished benchmark run (often an HTML dump) on a benchmark, with key metrics and links to its artefacts.
+  - `/dsd-run-experiment`, `/dsd-distill` and `/dsd-report` track experiments, write decisions and notes, and build reports.
+
+  `dsd setup` updates them on later runs but keeps any skill you've edited. The **Skills** page in the app lists them with all your other Claude skills.
 - **Outside your repo:** dsd keeps all of a project's state in `~/.dsd/projects/<id>/` and never writes into the repo, so you can use it on any codebase, including a large shared monorepo.
 - **App:** `dsd ui` serves the plans board, docs, runs, compare, leaderboards, diff review with comments you can send to an agent, and embedded Claude/shell terminals.
 
@@ -94,6 +101,13 @@ dsd plan show            # central plan
 dsd task add "Try LightGBM" --tag exp --attr benchmark=churn-v1
 dsd task start T-4 ; dsd task done T-4 -m "AUC 0.84, run 3ax47yw7"
 dsd plan new feature-eng --title "Feature engineering"
+```
+
+Record a run that already happened (e.g. a benchmark that dumped its results to HTML):
+
+```sh
+dsd runs add "solver-v2 full estate" -b estate --metric cost=1234.5 --metric hours=812 \
+  --link results=s3://bucket/run-7/ --artifact results.html --commit HEAD --at 2026-11-18
 ```
 
 ## Demo

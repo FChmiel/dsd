@@ -41,7 +41,8 @@ export function SessionLauncher({ pid, onStart, onClose }: {
   const [base, setBase] = useState("");
   const [existing, setExisting] = useState("");
   const [wts, setWts] = useState<Worktree[]>([]);
-  const [branches, setBranches] = useState<{ current: string | null; branches: string[] }>({ current: null, branches: [] });
+  const [branches, setBranches] = useState<{ current: string | null; default: string | null; branches: string[] }>({ current: null, default: null, branches: [] });
+  const [otherBase, setOtherBase] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
@@ -52,7 +53,7 @@ export function SessionLauncher({ pid, onStart, onClose }: {
       const linked = w.filter((x) => !x.is_main);
       if (linked[0]) setExisting(linked[0].name);
     }).catch(() => setWts([]));
-    api(`/api/p/${pid}/branches`).then((b) => { setBranches(b); setBase(b.current ?? ""); }).catch(() => {});
+    api(`/api/p/${pid}/branches`).then((b) => { setBranches(b); setBase(b.default ?? b.current ?? ""); }).catch(() => {});
   }, [pid]);
 
   useEffect(() => {
@@ -94,9 +95,15 @@ export function SessionLauncher({ pid, onStart, onClose }: {
           {mode === "new" && (
             <div className="launcher-fields">
               <input className="input mono" autoFocus placeholder="name (auto)" value={name} onChange={(e) => setName(e.target.value)} />
-              <select className="input" value={base} onChange={(e) => setBase(e.target.value)} title="Base branch">
-                {branches.branches.map((b) => <option key={b} value={b}>from {b}</option>)}
-              </select>
+              {otherBase ? (
+                <input className="input mono" placeholder="base branch" value={base} onChange={(e) => setBase(e.target.value)} title="Any local branch" />
+              ) : (
+                <select className="input" value={base} title="Base branch"
+                  onChange={(e) => { if (e.target.value === "\u0000other") { setOtherBase(true); setBase(""); } else setBase(e.target.value); }}>
+                  {branches.branches.map((b) => <option key={b} value={b}>from {b}</option>)}
+                  <option value={"\u0000other"}>Other branch…</option>
+                </select>
+              )}
             </div>
           )}
           {mode === "new" && <div className="muted mono" style={{ fontSize: 11, marginTop: 4 }}>branch dsd/{name.trim() ? name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-") : "<auto>"}</div>}

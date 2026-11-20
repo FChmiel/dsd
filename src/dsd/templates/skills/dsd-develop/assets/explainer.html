@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TITLE: what this page explains</title>
+<style>
+  :root {
+    --bg: #fbfbf9; --panel: #ffffff; --text: #1b1b18; --muted: #6b6a64; --border: #e4e3dd;
+    --accent: #2a6fdb; --accent-soft: #e8f0fd; --add: #1f8a4c; --add-soft: #e6f4ec; --del: #c0392b; --del-soft: #fbeceb;
+    --warn: #b7791f; --warn-soft: #fdf3e1; --code: #f3f2ee;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141413; --panel: #1c1c1a; --text: #e9e8e3; --muted: #9a998f; --border: #2e2d2a;
+      --accent: #6aa2ff; --accent-soft: #1d2a40; --add: #4cc386; --add-soft: #16291f; --del: #ff7b6e; --del-soft: #331a18;
+      --warn: #f0b85a; --warn-soft: #33281a; --code: #232320;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+  main { max-width: 920px; margin: 0 auto; padding: 32px 20px 64px; }
+  h1 { font-size: 28px; line-height: 1.25; margin: 0 0 6px; }
+  h2 { font-size: 21px; margin: 40px 0 10px; padding-top: 8px; border-top: 1px solid var(--border); }
+  h3 { font-size: 17px; margin: 22px 0 6px; }
+  p, li { max-width: 72ch; }
+  a { color: var(--accent); }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13.5px; }
+  code { background: var(--code); padding: 1px 5px; border-radius: 4px; }
+  pre { background: var(--code); padding: 12px 14px; border-radius: 8px; overflow-x: auto; line-height: 1.45; }
+  .sub { color: var(--muted); margin: 0 0 18px; }
+  .summary { background: var(--accent-soft); border-left: 4px solid var(--accent); padding: 14px 18px; border-radius: 6px; font-size: 17px; }
+  .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 16px 0; }
+  .fact { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+  .fact b { display: block; font-size: 20px; }
+  .fact span { color: var(--muted); font-size: 13px; }
+  .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 12px 0; }
+  .compare > div { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; min-width: 0; }
+  .compare .label { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  .before .label { color: var(--del); } .after .label { color: var(--add); }
+  @media (max-width: 680px) { .compare { grid-template-columns: 1fr; } }
+  figure { margin: 16px 0; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+  figcaption { color: var(--muted); font-size: 14px; margin-top: 8px; }
+  .mermaid { background: transparent; text-align: center; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 15px; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 13px; }
+  td.num { font-variant-numeric: tabular-nums; text-align: right; }
+  .widget { display: grid; grid-template-columns: minmax(200px, 1fr) 1fr; gap: 16px; align-items: center; }
+  .widget label { display: block; font-size: 14px; margin: 6px 0; }
+  .widget input[type=range] { width: 100%; }
+  .widget output { display: block; font-size: 22px; font-weight: 600; }
+  .callout { border-left: 4px solid var(--warn); background: var(--warn-soft); padding: 10px 14px; border-radius: 6px; margin: 12px 0; }
+  .rec { border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; margin: 8px 0; background: var(--panel); }
+  .rec .tag { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+  .blocker .tag { color: var(--del); } .change .tag { color: var(--warn); } .suggestion .tag { color: var(--muted); }
+  .changed rect, .changed polygon { stroke-width: 2.5px !important; }
+  footer { color: var(--muted); font-size: 13px; margin-top: 48px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>TITLE: one line saying what changes</h1>
+  <p class="sub">SUBTITLE: e.g. PR #123 by @author · 4 files · +210 −35 · read at commit abc1234 on 2026-01-01</p>
+
+  <p class="summary">TODO: two or three sentences. What this does, why, and the one thing a reader must know.</p>
+
+  <div class="facts">
+    <div class="fact"><b>TODO</b><span>key fact, e.g. lines changed</span></div>
+    <div class="fact"><b>TODO</b><span>areas touched</span></div>
+    <div class="fact"><b>TODO</b><span>risk: low / medium / high</span></div>
+  </div>
+
+  <h2>Why this change</h2>
+  <p>TODO: the problem or goal, in the reader's terms.</p>
+
+  <h2>How it works</h2>
+  <figure>
+    <pre class="mermaid">
+flowchart LR
+  A[Input] --> B[Step that stays the same]
+  B --> C[Step that changed]:::changed
+  C --> D[Output]
+  classDef changed stroke:#2a6fdb,stroke-width:3px
+    </pre>
+    <figcaption>TODO: one sentence saying what to notice. The highlighted box is the part that changed.</figcaption>
+  </figure>
+
+  <h2>What changes</h2>
+  <h3>TODO: the first key difference</h3>
+  <div class="compare">
+    <div class="before"><div class="label">Before</div><pre>TODO: old behaviour or a short excerpt</pre></div>
+    <div class="after"><div class="label">After</div><pre>TODO: new behaviour or a short excerpt</pre></div>
+  </div>
+  <p>TODO: why this difference matters. Link the code: <a href="#">path/to/file.py#L10-L30</a>.</p>
+
+  <h3>Try the rule</h3>
+  <figure>
+    <div class="widget">
+      <div>
+        <label>TODO input <input id="w-in" type="range" min="0" max="100" value="40"> <span id="w-in-v"></span></label>
+      </div>
+      <div><output id="w-out"></output><span class="sub">TODO: what the output means</span></div>
+    </div>
+    <figcaption>TODO: the real rule from the code, with real example values.</figcaption>
+  </figure>
+
+  <h2>What stays the same</h2>
+  <ul><li>TODO</li></ul>
+
+  <h2>Evidence</h2>
+  <figure>
+    <canvas id="chart" height="120"></canvas>
+    <figcaption>TODO: what the chart shows, units, and where the numbers come from.</figcaption>
+  </figure>
+  <table>
+    <tr><th>Metric</th><th class="num">Before</th><th class="num">After</th><th class="num">Change</th></tr>
+    <tr><td>TODO</td><td class="num">0</td><td class="num">0</td><td class="num">0%</td></tr>
+  </table>
+
+  <h2>Risks and open questions</h2>
+  <div class="callout">TODO: the main risk and how it is handled.</div>
+
+  <h2>Recommendations</h2>
+  <div class="rec blocker"><div class="tag">Blocker</div><p>TODO: what must change before merging, where (file:line), and why.</p></div>
+  <div class="rec change"><div class="tag">Worth changing</div><p>TODO</p></div>
+  <div class="rec suggestion"><div class="tag">Suggestion</div><p>TODO</p></div>
+
+  <footer>Generated with dsd. Read at commit TODO on TODO.</footer>
+</main>
+
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+  const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+  mermaid.initialize({ startOnLoad: true, theme: dark ? "dark" : "neutral", securityLevel: "strict" });
+</script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<script>
+  const rule = (x) => (x > 50 ? "TODO: above threshold" : "TODO: below threshold");
+  const input = document.getElementById("w-in");
+  const show = () => {
+    document.getElementById("w-in-v").textContent = input.value;
+    document.getElementById("w-out").textContent = rule(Number(input.value));
+  };
+  input?.addEventListener("input", show);
+  if (input) show();
+
+  if (window.Chart && document.getElementById("chart")) {
+    new Chart(document.getElementById("chart"), {
+      type: "bar",
+      data: { labels: ["Before", "After"], datasets: [{ label: "TODO metric (unit)", data: [0, 0] }] },
+      options: { plugins: { legend: { display: false } }, scales: { y: { title: { display: true, text: "TODO unit" } } } },
+    });
+  }
+</script>
+</body>
+</html>

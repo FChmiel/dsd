@@ -134,6 +134,8 @@ export function TerminalPane(props: {
   activeId: string | null;
   onSelect: (id: string) => void;
   onNew: (kind: "claude" | "shell", target: SessionTarget) => Promise<unknown>;
+  onTerminal: () => void;
+  terminalWhere: string;
   launcherOpen: boolean;
   setLauncherOpen: (b: boolean) => void;
   onClose: (id: string) => void;
@@ -154,6 +156,7 @@ export function TerminalPane(props: {
           </button>
         ))}
         <span style={{ flex: 1 }} />
+        <button className="term-btn" onClick={props.onTerminal} title={`Open a shell in ${props.terminalWhere}`}>+ Terminal</button>
         <button className="term-btn" data-launcher-toggle onClick={() => setLauncherOpen(!launcherOpen)} title="New Claude or shell session (new worktree, existing worktree, or main checkout)">+ New session</button>
         <button className="term-btn" onClick={props.onHide} title="Hide agent pane (⌘J)">⇥</button>
       </div>
@@ -162,13 +165,13 @@ export function TerminalPane(props: {
         {terminals.length === 0 && (
           <div className="term-empty">
             <div className="big">Agent pane</div>
-            Start <b>Claude Code</b> in this project. It gets the dsd MCP server and skills
-            (<code>/dsd-next-task</code>, <code>/dsd-run-experiment</code>, <code>/dsd-plan</code>…) from the project's
-            <code> .mcp.json</code> and <code>.claude/skills</code>.
+            Start <b>Claude Code</b> in this project. Once you've run <code>dsd setup</code>, it has the dsd MCP server and
+            skills (<code>/dsd-plan</code>, <code>/dsd-develop</code>, <code>/dsd-review</code>, <code>/dsd-benchmark</code>…).
             <div style={{ marginTop: 6 }}>Each new session gets its <b>own git worktree</b> by default, so parallel agents never edit the same checkout.</div>
             <div style={{ marginTop: 14, display: "flex", gap: 8 }}>
               <button className="term-btn" onClick={() => setLauncherOpen(true)}>New session…</button>
               <button className="term-btn" onClick={() => props.onNew("claude", { mode: "main" })}>Claude on main checkout</button>
+              <button className="term-btn" onClick={props.onTerminal}>Terminal</button>
             </div>
           </div>
         )}

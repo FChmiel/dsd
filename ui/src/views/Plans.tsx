@@ -191,7 +191,7 @@ function TaskDetail({ task, onChange, setStatus }: { task: Task; onChange: () =>
         ))}
         <span className="spacer" />
         <button className="btn sm" title="Starts Claude in this task's own worktree (branch dsd/<task>), or reuses it"
-          onClick={() => sendToAgent(`/dsd-next-task ${task.id}`, { session: { mode: "new", task: task.id!, task_title: task.title } })}>
+          onClick={() => sendToAgent(`/dsd-develop ${task.id}`, { session: { mode: "new", task: task.id!, task_title: task.title } })}>
           Work on this in a worktree
         </button>
         {task.tags.includes("exp") || task.attrs.benchmark ? (

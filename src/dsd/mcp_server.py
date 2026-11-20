@@ -179,6 +179,27 @@ def run_get(run_id: str) -> dict:
 
 
 @tool
+def run_add(name: str, benchmark: str | None = None, metrics: dict[str, float] | None = None,
+            task: str | None = None, params: dict | None = None, links: dict[str, str] | None = None,
+            artifacts: list[str] | None = None, notes: str | None = None, created_at: str | None = None,
+            commit: str | None = None) -> dict:
+    """Record a run that already happened, e.g. a benchmark whose results were dumped to an HTML file.
+    metrics: numbers to compare on the benchmark. links: label -> URL (S3, dashboards, PRs).
+    artifacts: file or folder paths to copy into the run. created_at: ISO date/time of the run. commit: git ref it ran from.
+    Confirm the benchmark, metrics and links with the user before calling."""
+    from .tracking.record import record_run
+
+    p = _project()
+    b = record_run(p, name, benchmark=benchmark, task=plans.normalize_id(task) if task else None, metrics=metrics,
+                   params=params, links=links, artifacts=artifacts, notes=notes, created_at=created_at, commit=commit)
+    with Index(p) as idx:
+        idx.sync()
+        d = idx.run_detail(b.id)
+    d.pop("meta", None)
+    return d
+
+
+@tool
 def runs_compare(run_ids: list[str]) -> dict:
     """Compare runs side by side: params (with a 'differs' flag) and metrics."""
     p = _project()

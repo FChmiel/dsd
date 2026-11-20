@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { del, fmtTime, post, tildify, useApi } from "../api";
+import { del, fmtTime, post, tildify, useApi, type Project } from "../api";
 import { useApp } from "../context";
 import { href, linkProps, navigate } from "../router";
 import type { Worktree } from "../components/SessionLauncher";
@@ -11,6 +11,8 @@ export function Worktrees() {
   const wts = useApi<Worktree[]>(`/api/p/${project.id}/worktrees`, { poll: 5000 });
   const [panel, setPanel] = useState<Panel>(null);
   const [adopting, setAdopting] = useState(false);
+  const projects = useApi<Project[]>("/api/projects");
+  const siblings = (projects.data ?? []).filter((p) => p.repo === project.repo && p.id !== project.id);
   const [error, setError] = useState<string | null>(null);
 
   const act = async (fn: () => Promise<any>, ok: string) => {
@@ -77,6 +79,17 @@ export function Worktrees() {
                 {!w.is_main && <>
                   <span className="spacer" />
                   {w.origin === "current" && <button className="btn sm ghost" onClick={() => act(() => post(`/api/p/${project.id}/worktrees/adopt`, { path: w.path }), `Adopted ${w.name}`)}>Adopt</button>}
+                  {(w.origin === "dsd" || w.origin === "adopted") && siblings.length > 0 && (
+                    <select className="input" style={{ width: "auto", padding: "2px 6px", fontSize: 12 }} value=""
+                      title="Hand this worktree and its sessions to another project on this repo"
+                      onChange={(e) => {
+                        const to = siblings.find((p) => p.id === e.target.value);
+                        if (to) act(() => post(`/api/p/${project.id}/worktrees/${w.name}/move`, { to: to.id }), `Moved ${w.name} to ${to.name}`);
+                      }}>
+                      <option value="">Move to…</option>
+                      {siblings.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                  )}
                   {w.origin === "adopted" && <button className="btn sm ghost" title="Stop listing it; the directory and branch stay" onClick={() => act(() => post(`/api/p/${project.id}/worktrees/${w.name}/hide`, {}), `Hid ${w.name}`)}>Hide</button>}
                   <button className="btn sm ghost" disabled={!w.dirty} onClick={() => setPanel(open?.kind === "commit" ? null : { name: w.name, kind: "commit" })}>Commit…</button>
                   <button className="btn sm ghost" disabled={!w.ahead} title={w.ahead ? "" : "No commits to merge yet"}

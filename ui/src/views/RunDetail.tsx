@@ -110,7 +110,13 @@ export function RunDetail({ rid, tab: tabParam }: { rid: string; tab: string | n
               <div className="card-head">Info</div>
               <div className="card-body">
                 <dl className="kv">{Object.entries(d.info).map(([k, v]) => (
-                  <Fragment key={k}><dt className="mono">{k}</dt><dd className="mono" style={{ fontSize: 12 }}>{typeof v === "string" ? v : JSON.stringify(v)}</dd></Fragment>
+                  <Fragment key={k}><dt className="mono">{k}</dt><dd className="mono" style={{ fontSize: 12 }}>
+                    {k === "links" && v && typeof v === "object" ? (
+                      <div className="stack" style={{ gap: 2 }}>{Object.entries(v as Record<string, string>).map(([label, url]) => (
+                        <div key={label}>{label}: {/^https?:\/\//.test(url) ? <a href={url} target="_blank" rel="noreferrer">{url}</a> : url}</div>
+                      ))}</div>
+                    ) : typeof v === "string" && /^https?:\/\//.test(v) ? <a href={v} target="_blank" rel="noreferrer">{v}</a>
+                      : typeof v === "string" ? v : JSON.stringify(v)}</dd></Fragment>
                 ))}</dl>
               </div>
             </div>

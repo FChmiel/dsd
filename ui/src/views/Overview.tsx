@@ -17,7 +17,7 @@ export function Overview({ data }: { data: any; reload: () => void }) {
         <h1>{project.name}</h1>
         <span className="sub mono" title={`Docs, plans and runs: ${tildify(project.data_dir)}`}>{projectPath(project)}</span>
         <span className="spacer" />
-        <button className="btn" onClick={() => sendToAgent("/dsd-next-task")}>Next task with Claude</button>
+        <button className="btn" onClick={() => sendToAgent("/dsd-develop")}>Next task with Claude</button>
         <button className="btn primary" onClick={() => sendToAgent("/dsd-plan ")}>Plan with Claude</button>
       </div>
 

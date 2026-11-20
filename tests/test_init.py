@@ -62,3 +62,29 @@ def test_project_root_env_overrides_cwd(tmp_path, monkeypatch):
     assert "alpha" in runner.invoke(app, ["info"]).output
     monkeypatch.setenv("DSD_PROJECT_ROOT", str(tmp_path / "b"))
     assert "beta" in runner.invoke(app, ["info"]).output
+
+
+def test_cli_default_and_wt_move(tmp_path, monkeypatch):
+    import subprocess
+
+    def git(*a):
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *a], cwd=tmp_path, check=True, capture_output=True)
+
+    git("init", "-q", "-b", "main")
+    (tmp_path / "a.txt").write_text("a\n")
+    git("add", "-A")
+    git("commit", "-qm", "init")
+    runner = CliRunner()
+    assert runner.invoke(app, ["init", str(tmp_path), "--name", "mono"]).exit_code == 0
+    assert runner.invoke(app, ["init", str(tmp_path), "--name", "sof"]).exit_code == 0
+    monkeypatch.chdir(tmp_path)
+    assert "★ mono" in runner.invoke(app, ["default"]).output
+    wt_path = runner.invoke(app, ["wt", "new", "feature"]).stdout.strip().splitlines()[-1]
+    r = runner.invoke(app, ["wt", "move", "feature", "--to", "sof"])
+    assert r.exit_code == 0, r.output
+    monkeypatch.chdir(wt_path)
+    assert "sof" in runner.invoke(app, ["info"]).output.splitlines()[0]
+    monkeypatch.chdir(tmp_path)
+    assert runner.invoke(app, ["default", "sof"]).exit_code == 0
+    assert "sof" in runner.invoke(app, ["info"]).output.splitlines()[0]
+    assert runner.invoke(app, ["default", "nope"]).exit_code == 1

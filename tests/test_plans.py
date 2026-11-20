@@ -178,3 +178,20 @@ def test_lenient_frontmatter(project):
     write_main(project, "---\ntitle: Churn: main plan\nstatus: active\n---\n\n- [ ] T-1 x\n")
     pl = plans.load_plan(project)
     assert pl.meta == {"title": "Churn: main plan", "status": "active"} and pl.title == "Churn: main plan"
+
+
+def test_dsd_plan_template_takes_tasks(project):
+    from dsd import agents
+
+    tpl = agents.bundled_skills()["dsd-plan"]["templates/plan.md"].decode()
+    pl = plans.new_plan(project, "staffing", "Staffing")
+    pl.path.write_text(tpl.replace("<Title>", "Staffing"))
+    assert plans.load_plan(project, "staffing").tasks == []
+    t = plans.add_task(project, "Add the read path behind a flag", plan_slug="staffing")
+    text = plans.load_plan(project, "staffing").path.read_text()
+    assert text.rstrip().endswith(f"- [ ] {t.id} Add the read path behind a flag")
+    c = plans.add_task(project, "Check R2: p95 solve time under 30 s on estate", plan_slug="staffing", parent=t.id,
+                       tags=["check"], attrs={"req": "R2", "benchmark": "estate"})
+    found = plans.find_task(project, c.id)[1]
+    assert found.parent == t.id and found.tags == ["check"] and found.attrs == {"req": "R2", "benchmark": "estate"}
+    assert plans.check(project) == []

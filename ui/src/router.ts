@@ -11,6 +11,7 @@ export interface Route {
 export function parseRoute(): Route {
   const parts = window.location.pathname.split("/").filter(Boolean).map(decodeURIComponent);
   const query = new URLSearchParams(window.location.search);
+  if (parts[0] === "skills") return { pid: null, view: "skills", rest: parts.slice(1), query };
   if (parts[0] !== "p" || !parts[1]) return { pid: null, view: "home", rest: [], query };
   return { pid: parts[1], view: parts[2] || "overview", rest: parts.slice(3), query };
 }

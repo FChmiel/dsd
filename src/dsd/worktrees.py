@@ -23,7 +23,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
-from .project import Project, checkout_of, dsd_home
+from .project import WORKTREES_FILE, Project, checkout_of, dsd_home, owned_worktrees, repo_projects
 
 BRANCH_PREFIX = "dsd/"
 DEFAULT_COPY = [".env", ".env.local"]
@@ -67,7 +67,7 @@ def base_dir(project: Project) -> Path:
 
 
 def _meta_file(project: Project) -> Path:
-    return project.data_dir / "worktrees.json"
+    return project.data_dir / WORKTREES_FILE
 
 
 def _load_meta(project: Project) -> dict[str, dict]:
@@ -95,6 +95,23 @@ def current_branch(root: Path) -> str | None:
 def branches(project: Project) -> list[str]:
     r = _git(_main(project), "for-each-ref", "--format=%(refname:short)", "refs/heads", check=False)
     return [b for b in r.out.splitlines() if b]
+
+
+def default_branch(project: Project) -> str | None:
+    """The repo's default branch: origin's HEAD if it exists locally, else main or master."""
+    main = _main(project)
+    remote = _git(main, "symbolic-ref", "--short", "-q", "refs/remotes/origin/HEAD", check=False).out.strip()
+    for name in ([remote.split("/", 1)[1]] if "/" in remote else []) + ["main", "master"]:
+        if _git(main, "rev-parse", "--verify", "-q", f"refs/heads/{name}", check=False).code == 0:
+            return name
+    return None
+
+
+def relevant_branches(project: Project, include: list[Path] | None = None) -> list[str]:
+    """Branches worth offering as a base: the default, the main checkout's, and this project's worktrees'."""
+    names = [default_branch(project), current_branch(_main(project))]
+    names += [w["branch"] for w in list_worktrees(project, with_status=False, include=include)]
+    return list(dict.fromkeys(n for n in names if n))
 
 
 def _porcelain(project: Project) -> list[dict]:
@@ -146,10 +163,13 @@ def _entries(project: Project, include: list[Path] | None = None, everything: bo
     meta = _load_meta(project)
     by_path = {v["path"]: (k, v) for k, v in meta.items()}
     current = {str(c) for c in (checkout_of(Path(p).resolve()) for p in include or []) if c}
+    others = set().union(*(owned_worktrees(p) for p in repo_projects(project.repo) if p.id != project.id))
     out = []
     for item in _porcelain(project):
         path = Path(item["path"])
         name, m = by_path.get(str(path), (None, {}))
+        if str(path) in others and not m:
+            continue
         if path == main:
             name, origin = "main", "main"
         elif m:
@@ -217,6 +237,26 @@ def hide_worktree(project: Project, name: str) -> dict:
     meta.pop(wt["name"])
     _save_meta(project, meta)
     return {"hidden": wt["name"]}
+
+
+def move_worktree(project: Project, name: str, dest: Project) -> dict:
+    """Hand a worktree (and its metadata) to another project on the same repo."""
+    if dest.repo.resolve() != project.repo.resolve() or dest.id == project.id:
+        raise WorktreeError(f"'{dest.name}' isn't another project on {project.repo}")
+    wt = get_worktree(project, name)
+    meta = _load_meta(project)
+    if wt["name"] not in meta:
+        raise WorktreeError(f"'{wt['name']}' isn't in {project.name}'s worktree list")
+    entry = meta.pop(wt["name"])
+    dest_meta = _load_meta(dest)
+    new, n = wt["name"], 1
+    while new in dest_meta:
+        n += 1
+        new = f"{wt['name']}-{n}"
+    dest_meta[new] = entry
+    _save_meta(dest, dest_meta)
+    _save_meta(project, meta)
+    return get_worktree(dest, new)
 
 
 def get_worktree(project: Project, name: str | None) -> dict:

@@ -232,3 +232,52 @@ def test_changes_respect_a_total_line_budget(repo, monkeypatch):
     files = {f["path"]: f for f in review.working_changes(repo)["files"]}
     assert [len(files[f"big{i}.txt"]["hunks"]) for i in range(3)] == [1, 1, 0]
     assert files["big2.txt"]["truncated"] and files["big2.txt"]["additions"] == 10
+
+
+def test_overview_counts_changes_for_a_worktree(repo, tmp_path):
+    w = worktrees.create_worktree(repo, name="focus")
+    Path(w["path"], "train.py").write_text("lr = 3\n")
+    git(Path(w["path"]), "commit", "-qam", "lr")
+    Path(w["path"], "notes.txt").write_text("n\n")
+    Path(w["path"], ".env").write_text("SECRET=1\n")
+    ext = tmp_path / "external"
+    git(repo.root, "worktree", "add", "-q", "-b", "mine", str(ext))
+    with TestClient(create_app(current=ext)) as c:
+        main = c.get(f"/api/p/{repo.id}/overview").json()
+        assert main["changes"] == 0 and main["current_worktree"] == "external"
+        focused = c.get(f"/api/p/{repo.id}/overview", params={"worktree": "focus"}).json()
+        ch = c.get(f"/api/p/{repo.id}/changes", params={"worktree": "focus"}).json()
+        assert focused["changes"] == len(ch["files"]) == 2
+
+
+def test_api_move_worktree_takes_its_sessions(repo):
+    from dsd.init import init_project
+
+    other = init_project(repo.root, name="staff-on-floor").project
+    with TestClient(create_app()) as c:
+        t = c.post(f"/api/p/{repo.id}/terminals", json={"kind": "shell", "new_worktree": {"name": "sof"}}).json()
+        r = c.post(f"/api/p/{repo.id}/worktrees/sof/move", json={"to": other.id})
+        assert r.status_code == 200 and r.json()["name"] == "sof"
+        assert c.get(f"/api/p/{repo.id}/terminals").json() == []
+        assert [x["id"] for x in c.get(f"/api/p/{other.id}/terminals").json()] == [t["id"]]
+        assert [w["name"] for w in c.get(f"/api/p/{other.id}/worktrees").json()] == ["main", "sof"]
+        assert [w["name"] for w in c.get(f"/api/p/{repo.id}/worktrees").json()] == ["main"]
+        new = c.post("/api/projects", json={"path": str(repo.root), "init": True, "name": "third"}).json()
+        assert new["name"] == "third" and new["id"] not in (repo.id, other.id)
+
+
+def test_overview_current_worktree_includes_owned_ones(repo):
+    w = worktrees.create_worktree(repo, name="mine")
+    with TestClient(create_app(current=Path(w["path"]))) as c:
+        assert c.get(f"/api/p/{repo.id}/overview").json()["current_worktree"] == "mine"
+
+
+def test_relevant_branches_only(repo):
+    for i in range(5):
+        git(repo.root, "branch", f"unrelated-{i}")
+    worktrees.create_worktree(repo, name="mine")
+    assert worktrees.default_branch(repo) == "main"
+    assert worktrees.relevant_branches(repo) == ["main", "dsd/mine"]
+    with TestClient(create_app()) as c:
+        b = c.get(f"/api/p/{repo.id}/branches").json()
+        assert b == {"current": "main", "default": "main", "branches": ["main", "dsd/mine"]}

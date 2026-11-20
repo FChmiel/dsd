@@ -59,6 +59,31 @@ def init(
         console.print(f"dsd project '{p.name}' for {where} already up to date.")
 
 
+def _repo_project(p, ref: str):
+    from .project import repo_projects
+
+    found = next((x for x in repo_projects(p.repo) if ref in (x.name, x.id)), None)
+    if found is None:
+        err.print(f"[red]No project '{ref}' on {p.repo}[/red]")
+        raise typer.Exit(1)
+    return found
+
+
+@app.command("default")
+def default_(name: str = typer.Argument(None, help="Project to make the default (name or id).")) -> None:
+    """Show or set the repo's default project: the one its main checkout resolves to."""
+    from .init import set_default
+    from .project import pick_default, repo_projects
+
+    p = _project()
+    if name:
+        set_default(_repo_project(p, name))
+    same = repo_projects(p.repo, p.scope)
+    d = pick_default(same)
+    for x in same:
+        console.print(f"{'★' if x.id == d.id else ' '} [bold]{x.name}[/]  [dim]{x.id}[/]")
+
+
 @app.command()
 def setup(force: bool = typer.Option(False, "--force", help="Overwrite dsd skills you have edited.")) -> None:
     """Wire dsd into Claude Code for your user: register the dsd MCP server and install the dsd skills."""
@@ -495,6 +520,56 @@ def runs_compare(refs: list[str], all: bool = typer.Option(False, "--all", "-a",
     console.print(t)
 
 
+def _kv(items: list[str] | None, what: str) -> dict[str, str]:
+    out = {}
+    for item in items or []:
+        k, sep, v = item.partition("=")
+        if not sep or not k.strip():
+            err.print(f"[red]{what} must look like key=value, got {item!r}[/red]")
+            raise typer.Exit(2)
+        out[k.strip()] = v.strip()
+    return out
+
+
+@runs_app.command("add")
+def runs_add(
+    name: str = typer.Argument(..., help="Run name, e.g. 'solver-v2 full estate'."),
+    benchmark: str = typer.Option(None, "--benchmark", "-b"),
+    task: str = typer.Option(None, "--task", "-t"),
+    metric: list[str] = typer.Option(None, "--metric", "-m", help="key=value (repeatable)."),
+    metrics_json: Path = typer.Option(None, "--metrics-json", help="JSON file of metrics (nested keys are flattened)."),
+    param: list[str] = typer.Option(None, "--param", "-p", help="key=value (repeatable)."),
+    params: Path = typer.Option(None, "--params", help="YAML/JSON config file recorded as params."),
+    link: list[str] = typer.Option(None, "--link", "-l", help="label=URL, e.g. results=s3://bucket/run-7/ (repeatable)."),
+    artifact: list[Path] = typer.Option(None, "--artifact", "-a", help="File or folder to copy into the run (repeatable)."),
+    note: str = typer.Option(None, "--note", help="Free-text note shown with the run."),
+    tag: list[str] = typer.Option(None, "--tag"),
+    at: str = typer.Option(None, "--at", help="When the run happened (ISO date/time). Default: now."),
+    commit: str = typer.Option(None, "--commit", help="Commit the run was made from. Default: the current checkout."),
+) -> None:
+    """Record a run that already happened (results from an HTML dump, a notebook, a remote job...)."""
+    import json as _json
+
+    from .tracking.execute import load_params_file
+    from .tracking.query import _coerce
+    from .tracking.record import RecordError, record_run
+
+    p = _project()
+    values: dict = _json.loads(metrics_json.read_text()) if metrics_json else {}
+    values.update(_kv(metric, "--metric"))
+    prm: dict = load_params_file(params) if params else {}
+    prm.update({k: _coerce(v) for k, v in _kv(param, "--param").items()})
+    try:
+        bundle = record_run(p, name, benchmark=benchmark, task=plans.normalize_id(task) if task else None,
+                            metrics=values, params=prm, links=_kv(link, "--link"), artifacts=artifact,
+                            notes=note, tags=tag, created_at=at, commit=commit)
+    except RecordError as e:
+        err.print(f"[red]{e}[/red]")
+        raise typer.Exit(1)
+    console.print(f"[green]recorded[/] run [bold]{short(bundle.id)}[/] {name}"
+                  + (f" on {benchmark}" if benchmark else "") + f"  [dim](dsd runs show {short(bundle.id)})[/]")
+
+
 @runs_app.command("rm")
 def runs_rm(refs: list[str], yes: bool = typer.Option(False, "--yes", "-y")) -> None:
     """Delete runs (their bundles)."""
@@ -810,6 +885,16 @@ def wt_adopt(path: Path = typer.Argument(..., help="An existing worktree of this
 
     w = _wt_guard(wt.adopt_worktree, _project(), str(path), plans.normalize_id(task) if task else None)
     console.print(f"[green]adopted[/] {w['name']} ({w['branch'] or 'detached'})")
+
+
+@wt_app.command("move")
+def wt_move(name: str, to: str = typer.Option(..., "--to", help="Another project on this repo (name or id).")) -> None:
+    """Hand a worktree to another project on the same repo; dsd in that worktree then resolves to it."""
+    from . import worktrees as wt
+
+    p = _project()
+    w = _wt_guard(wt.move_worktree, p, name, _repo_project(p, to))
+    console.print(f"[green]moved[/] {w['name']} to {to}")
 
 
 @wt_app.command("hide")

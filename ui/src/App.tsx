@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, del, post, projectPath, tildify, useApi, type Project } from "./api";
+import { api, del, post, projectPath, qs, tildify, useApi, type Project } from "./api";
 import { href, linkProps, navigate, useRoute } from "./router";
 import { Ctx, type AppCtx } from "./context";
 import { TerminalPane, type TermInfo } from "./components/TerminalPane";
@@ -16,6 +16,7 @@ import { Worktrees } from "./views/Worktrees";
 import { loadSessionDefault, type SessionTarget } from "./components/SessionLauncher";
 import { CliCard } from "./components/CliCard";
 import { HomePage } from "./views/Home";
+import { SkillsPage } from "./views/Skills";
 
 const NAV = [
   { view: "overview", label: "Overview", icon: "grid" },
@@ -44,6 +45,7 @@ export default function App() {
   const projects = useApi<Project[]>("/api/projects");
   const project = projects.data?.find((p) => p.id === route.pid) ?? null;
 
+  if (route.view === "skills") return <SkillsPage sid={route.rest[0] ?? null} file={route.query.get("file")} />;
   if (!route.pid || (projects.data && !project)) {
     return <HomePage projects={projects.data ?? []} reloadProjects={projects.reload} />;
   }
@@ -59,7 +61,11 @@ function Workspace({ project, projects }: { project: Project; projects: Project[
   const [paneWidth, setPaneWidth] = useState<number>(() => load("dsd.pane.width", 560));
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [launcherOpen, setLauncherOpen] = useState(false);
-  const overview = useApi<any>(`/api/p/${project.id}/overview`, { poll: 6000 });
+  const [currentWt, setCurrentWt] = useState<string | null>(null);
+  const active = terminals.find((t) => t.id === activeTerm);
+  const focusWorktree = active ? active.worktree ?? null : currentWt;
+  const overview = useApi<any>(`/api/p/${project.id}/overview${qs({ worktree: focusWorktree })}`, { poll: 6000 });
+  useEffect(() => { if (overview.data) setCurrentWt(overview.data.current_worktree ?? null); }, [overview.data]);
 
   const toast = useCallback((m: string) => {
     setToastMsg(m);
@@ -144,9 +150,9 @@ function Workspace({ project, projects }: { project: Project; projects: Project[
   }, [activeTerm, terminals, newTerminal, toast]);
 
   const ctx = useMemo<AppCtx>(() => ({
-    project, sendToAgent, terminals, activeTerminal: activeTerm, toast, newSession: newTerminal,
+    project, sendToAgent, terminals, activeTerminal: activeTerm, focusWorktree, toast, newSession: newTerminal,
     openLauncher: () => { setPaneOpen(true); setLauncherOpen(true); },
-  }), [project, sendToAgent, terminals, activeTerm, toast, newTerminal]);
+  }), [project, sendToAgent, terminals, activeTerm, focusWorktree, toast, newTerminal]);
 
   // pane resize
   const dragging = useRef(false);
@@ -197,6 +203,7 @@ function Workspace({ project, projects }: { project: Project; projects: Project[
           <a className="brand" {...linkProps("/")} style={{ color: "inherit", textDecoration: "none" }}><span className="logo">ds</span> dsd</a>
           <nav className="nav" style={{ paddingBottom: 6 }}>
             <a {...linkProps("/")}><Icon name="home" /> Home</a>
+            <a {...linkProps("/skills")}><Icon name="skill" /> Skills</a>
           </nav>
           <ProjectSwitcher current={project} projects={projects} />
           <nav className="nav">
@@ -216,6 +223,7 @@ function Workspace({ project, projects }: { project: Project; projects: Project[
               title={`${projectPath(project)}\nDocs, plans and runs: ${tildify(project.data_dir)}`}>
               {projectPath(project)}
             </div>
+            {focusWorktree && <div className="mono dim" style={{ marginTop: 2 }} title="The worktree of the active session">⎇ {focusWorktree}</div>}
             <div style={{ marginTop: 6, display: "flex", gap: 6, alignItems: "center" }}>
               <button className="btn sm ghost" onClick={() => setPaneOpen((o) => !o)}>
                 {paneOpen ? "Hide" : "Show"} agent <span className="kbd">⌘J</span>
@@ -242,6 +250,8 @@ function Workspace({ project, projects }: { project: Project; projects: Project[
             activeId={activeTerm}
             onSelect={setActiveTerm}
             onNew={newTerminal}
+            onTerminal={() => newTerminal("shell", focusWorktree ? { mode: "existing", worktree: focusWorktree } : { mode: "main" })}
+            terminalWhere={focusWorktree ?? "main checkout"}
             onClose={closeTerminal}
             onExited={() => refreshTerms()}
             onHide={() => setPaneOpen(false)}
@@ -277,6 +287,13 @@ function ProjectSwitcher({ current, projects }: { current: Project; projects: Pr
             </button>
           ))}
           <div style={{ borderTop: "1px solid var(--border)", margin: "4px 0" }} />
+          <button className="menu-item" onClick={async () => {
+            setOpen(false);
+            const name = window.prompt(`Name of the new project on ${projectPath(current)}`)?.trim();
+            if (!name) return;
+            const p = await post<Project>("/api/projects", { path: current.repo, init: true, name, scope: current.scope });
+            window.location.assign(href(p.id, "overview"));
+          }}>+ New project on this repo…</button>
           <button className="menu-item" onClick={() => { setOpen(false); navigate("/#add-project"); }}>+ Add project…</button>
         </div>
       )}

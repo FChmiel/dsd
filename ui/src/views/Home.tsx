@@ -50,6 +50,7 @@ export function HomePage({ projects, reloadProjects }: { projects: Project[]; re
         <nav className="nav">
           <a className="active" {...linkProps("/")}><Icon name="home" /> Home
             {d && d.counts.overdue + d.counts.today > 0 && <span className="count hot">{d.counts.overdue + d.counts.today}</span>}</a>
+          <a {...linkProps("/skills")}><Icon name="skill" /> Skills</a>
         </nav>
         <div className="section-label" style={{ padding: "14px 16px 4px" }}>Projects</div>
         <nav className="nav">
