@@ -22,16 +22,28 @@ export function RunDetail({ rid, tab: tabParam }: { rid: string; tab: string | n
     <div className="page">
       <div className="page-head">
         <a className="muted" {...linkProps(href(project.id, "runs"))}>Runs</a><span className="muted">/</span>
-        <h1>{d.name}</h1>
+        <h1 title={d.info?.description ?? undefined}>{d.name}</h1>
         <StatusPill status={d.status} />
         <span className="id">{d.id}</span>
         <span className="spacer" />
+        {d.status === "failed" && (
+          <button className="btn" onClick={() => sendToAgent(
+            `dsd run ${d.id} (${d.name}) failed. Read the end of its log (run_get, or dsd runs show ${d.id.slice(-8).toLowerCase()}), tell me why in a few lines, and record a one-line diagnosis and a clearer name with run_update.`)}>
+            Explain the failure
+          </button>
+        )}
+        {Object.keys(d.metric_stats).length === 0 && d.status !== "failed" && (
+          <button className="btn primary" onClick={() => sendToAgent(`/dsd-benchmark run ${d.id.slice(-8).toLowerCase()}`)}>
+            Pick metrics with Claude
+          </button>
+        )}
         <button className="btn" onClick={() => sendToAgent(
           `Look at dsd run ${d.id} (${d.name}${d.benchmark ? `, benchmark ${d.benchmark}` : ""}). Use the dsd MCP tools (run_get, bench_board, runs_compare) and tell me how it compares to the best previous run and what to try next.`)}>
           Ask Claude about this run
         </button>
       </div>
 
+      {d.info?.description && <p className="dim" style={{ margin: "-6px 0 12px" }}>{d.info.description}</p>}
       <div className="card" style={{ marginBottom: 14 }}>
         <div className="card-body">
           <dl className="kv" style={{ gridTemplateColumns: "max-content minmax(0,1fr) max-content minmax(0,1fr)" }}>

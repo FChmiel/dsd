@@ -29,7 +29,9 @@ in the project's data dir (~/.dsd/projects/<id>/, shown by project_overview). Ne
 - Docs: use docs_list, docs_search, docs_read and docs_write with paths relative to the docs folder. Decisions go
   in decisions/, notes in notes/, HTML reports in reports/.
 - Tag experiment runs with the task they serve: dsd.run(..., task="T-12") or `dsd exec --task T-12 -- <cmd>`.
-  Query them with runs_query, run_get, runs_compare and bench_board.
+  Query them with runs_query, run_get, runs_compare and bench_board. After a run, give it an informative name and
+  a one-line description with run_update (for a failed run, say why, from its log); if it has no metrics, read its
+  attached outputs and propose metrics to the user (see /dsd-benchmark).
 - Add a `Task: T-12` trailer to commits that implement a task.
 - You may be in a dsd git worktree (branch dsd/<name>). Commit your work on that branch; the user reviews and
   merges it from the dsd app (`dsd wt merge`). Plans, docs and runs are shared with the main checkout.
@@ -248,6 +250,26 @@ def run_add(name: str, benchmark: str | None = None, metrics: dict[str, float] |
     p = _project()
     b = record_run(p, name, benchmark=benchmark, task=plans.normalize_id(task) if task else None, metrics=metrics,
                    params=params, links=links, artifacts=artifacts, notes=notes, created_at=created_at, commit=commit)
+    with Index(p) as idx:
+        idx.sync()
+        d = idx.run_detail(b.id)
+    d.pop("meta", None)
+    return d
+
+
+@tool
+def run_update(run_id: str, name: str | None = None, description: str | None = None,
+               metrics: dict[str, float] | None = None, params: dict | None = None,
+               links: dict[str, str] | None = None, artifacts: list[str] | None = None,
+               tags: list[str] | None = None) -> dict:
+    """Improve a recorded run (e.g. one made by `dsd exec`): an informative name ("sof_baseline · today preset ·
+    1 wk"), a one-line description of what it tried (or, if it failed, why, from its log), metrics read from its
+    report or outputs, params, links and extra artifacts. Confirm the metrics with the user before recording them."""
+    from .tracking.record import update_run
+
+    p = _project()
+    b = update_run(p, run_id, name=name, description=description, metrics=metrics, params=params, links=links,
+                   artifacts=artifacts, tags=tags)
     with Index(p) as idx:
         idx.sync()
         d = idx.run_detail(b.id)

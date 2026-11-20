@@ -1,11 +1,19 @@
 ---
 name: dsd-benchmark
-description: Add the results of a benchmark run to a dsd benchmark, so it can be compared with other runs on the leaderboard - find where the run happened and its results (often an HTML or JSON dump), confirm them with the user, record key metrics, and link its artefacts (S3, reports, dashboards). Use when the user says "add this benchmark run", "record these results", "log this benchmark", or /dsd-benchmark.
+description: Add the results of a benchmark run to a dsd benchmark, so it can be compared with other runs on the leaderboard - find the run and its results (often an HTML or JSON report, which `dsd exec` attaches automatically), recommend the key metrics and confirm them with the user, record them, name and describe the run, and link its artefacts (S3, reports, dashboards). Use when the user says "add this benchmark run", "record these results", "pick the metrics for run X", "log this benchmark", or /dsd-benchmark.
 ---
 
 # Add a benchmark run
 
-dsd compares runs on a benchmark by their metrics. This skill records a run that has already happened, with `dsd runs add` (or the MCP tool `run_add`). Confirm with the user before recording anything.
+dsd compares runs on a benchmark by their metrics. Runs come two ways: `dsd exec -b <benchmark> -- <cmd>` records the run while it happens and attaches the files its output mentions (under `outputs/`), but it can't know which numbers matter; or the run happened elsewhere and has to be recorded from its results. Either way this skill adds the metrics. Confirm with the user before recording anything.
+
+## 0. If the run is already in dsd
+
+If the user names a run (`/dsd-benchmark run 0j63gaxc`), or `runs_query(benchmark=...)` shows a recent run with no metrics:
+
+1. `run_get(<id>)`: read its attached outputs (`artifact_get(<id>, "outputs/report.html")`, and any JSON or CSV next to it), its log tail if it failed, and `info.links.outputs` for the folder it wrote.
+2. Recommend metrics as in step 2 below, explaining in a line each why it matters for this benchmark, and wait for the user.
+3. Record them on the same run with `run_update(<id>, metrics={...}, name=..., description=...)`, not a new run. Then continue at step 4.
 
 ## 1. Find the run
 
@@ -24,7 +32,7 @@ Show the user the candidates and ask which run it is. Also confirm: which benchm
 Open the results file and extract the headline numbers. Then:
 
 1. Call `bench_list` and `bench_board(<benchmark>)`. Reuse the metric names that runs on this benchmark already have, with the same units and scale, so the leaderboard compares like with like. If the new results use different names or units, map them and tell the user.
-2. Propose the metrics to record (name, value, unit, and whether higher or lower is better) plus the parameters that distinguish this run (solver version, config, data window). Keep to the key metrics; detail stays in the artefacts.
+2. Recommend the metrics to record: 3 to 6 headline numbers (name with unit, value, whether higher or lower is better, and one line on why it matters), plus the parameters that distinguish this run (solver version, config, data window). Prefer numbers that answer the benchmark's question and the plan's requirements (`plan_read`); leave the detail in the artefacts. If the report has many candidates, show the user your shortlist and the rest you skipped.
 3. Collect links: S3 buckets or prefixes, dashboards, the PR, notebooks. The results file itself goes in as an artefact (copied into the run).
 
 Show the user the full list and wait for confirmation or corrections.
@@ -41,6 +49,8 @@ dsd runs add "<run name>" --benchmark <benchmark> [--task T-12] \
 ```
 
 `run_add` takes the same fields. If the benchmark is new, set how it ranks: `dsd bench set <benchmark> --primary <metric> --direction max|min` (ask which metric and direction).
+
+Name the run so it reads well on the leaderboard (`sof_baseline · today preset · 1 wk`, not `just`) and give it a one-line description of what it tried; for a run made by `dsd exec`, set these with `run_update`.
 
 ## 4. Show where it lands
 

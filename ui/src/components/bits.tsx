@@ -69,7 +69,12 @@ export function RunsTable({ pid, runs, metricKeys, paramKeys, selected, onToggle
                 <td><input type="checkbox" checked={selected?.has(r.id) ?? false} onChange={() => onToggle(r.id)} /></td>
               )}
               <td>
-                <div style={{ fontWeight: 550 }}>{r.name}</div>
+                <div style={{ fontWeight: 550 }} title={(r as any).info?.description ?? undefined}>{r.name}</div>
+                {(r as any).info?.description && !compact && (
+                  <div className="muted" style={{ fontSize: 11.5, maxWidth: 360, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {(r as any).info.description}
+                  </div>
+                )}
                 <div className="id">{shortId(r.id)}{r.artifacts ? ` · ${r.artifacts} artifact${r.artifacts > 1 ? "s" : ""}` : ""}</div>
               </td>
               <td><StatusPill status={r.status} /></td>

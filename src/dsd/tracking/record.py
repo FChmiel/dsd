@@ -76,3 +76,44 @@ def record_run(
         fields["git"] = {"sha": _resolve_commit(project.root, commit), "branch": None, "dirty": None, "recorded": True}
     bundle.update_meta(**fields)
     return bundle
+
+
+def update_run(
+    project: Project, ref: str, *, name: str | None = None, description: str | None = None,
+    metrics: dict | None = None, params: dict | None = None, links: dict[str, str] | None = None,
+    artifacts: list[str | Path] | None = None, tags: list[str] | None = None,
+) -> Bundle:
+    """Improve a recorded run: a clearer name, a description (e.g. why it failed), metrics read from its report,
+    params, links and artifacts. Existing metrics, params and links are kept unless overwritten."""
+    from .index import Index
+
+    values = _numeric(metrics or {})
+    missing = [str(a) for a in artifacts or [] if not Path(a).exists()]
+    if missing:
+        raise RecordError(f"artifact not found: {', '.join(missing)}")
+    with Index(project) as idx:
+        idx.sync()
+        try:
+            rid = idx.resolve_id(ref)
+        except KeyError:
+            raise RecordError(f"No run '{ref}'")
+        bundle = Bundle(Path(idx.run_detail(rid)["bundle_path"]))
+    meta = bundle.read_meta()
+    if name:
+        meta["name"] = name
+    info = dict(meta.get("info") or {})
+    if description is not None:
+        info["description"] = description
+    if links:
+        info["links"] = {**info.get("links", {}), **links}
+    meta["info"] = info
+    if params:
+        meta["params"] = {**meta.get("params", {}), **to_jsonable(params)}
+    if tags:
+        meta["tags"] = list(dict.fromkeys([*meta.get("tags", []), *tags]))
+    bundle.write_meta(meta)
+    if values:
+        bundle.append_metrics(values)
+    for a in artifacts or []:
+        bundle.add_artifact(Path(a))
+    return bundle

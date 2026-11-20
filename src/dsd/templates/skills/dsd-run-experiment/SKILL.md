@@ -21,5 +21,5 @@ description: Run and track an experiment with dsd, then compare results against 
      ```
    - Datasets are references: an id, a link (GitHub/S3) or a config file path - never copy data.
    - For seeds, run once per seed with `--param seed=N` so the leaderboard can show mean ± std.
-3. After it finishes: `run_get(<id>)`, then `bench_board(<benchmark>, group_by=...)` to place it against previous runs. Report the key numbers and what changed versus the best previous run (`runs_compare`).
+3. After it finishes, name it: `run_update(<id>, name="<what varied, e.g. lgbm · depth 8 · seed 2>", description="<one line: what it tried>")`. If it failed, read the end of its log (`run_get`, or `dsd runs show <id>`) and put a short diagnosis in the description ("OOM at epoch 3 with batch 512"). If it wrote a report but logged no metrics, propose metrics from it as `/dsd-benchmark` does. Then `run_get(<id>)`, then `bench_board(<benchmark>, group_by=...)` to place it against previous runs. Report the key numbers and what changed versus the best previous run (`runs_compare`).
 4. Add a one-line result note to the task with `task_update(task_id, note=...)`, including the run id.
