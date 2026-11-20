@@ -35,6 +35,9 @@ def create_app(current: Path | None = None) -> FastAPI:
         from .terminals import resolve_claude_command
 
         asyncio.get_running_loop().run_in_executor(None, resolve_claude_command)  # warm the lookup
+        from ..agents import refresh_installed_skills
+
+        asyncio.get_running_loop().run_in_executor(None, refresh_installed_skills)
         yield
         terms.close_all()
 
@@ -94,6 +97,27 @@ def create_app(current: Path | None = None) -> FastAPI:
     @app.get("/api/health")
     def health():
         return {"ok": True, "version": __version__}
+
+    @app.get("/api/claude")
+    def claude_status():
+        from .. import agents
+
+        return {"mcp": agents.mcp_status(),
+                "skills": [{"name": n, "state": agents.skill_state(n, b)} for n, b in agents.bundled_skills().items()]}
+
+    @app.post("/api/claude/connect")
+    def claude_connect():
+        from .. import agents
+
+        skills_done = [{"action": a, "path": str(p)} for a, p in agents.install_skills(force=False)]
+        try:
+            mcp = agents.register_mcp()
+        except RuntimeError as e:
+            raise HTTPException(400, str(e))
+        if mcp == "missing":
+            raise HTTPException(400, "The claude CLI isn't on your PATH. Install Claude Code, then try again, or run: "
+                                + " ".join(agents.mcp_add_command()))
+        return {"mcp": mcp, "skills": skills_done, "status": agents.mcp_status()}
 
     @app.get("/api/cli")
     async def cli_status():

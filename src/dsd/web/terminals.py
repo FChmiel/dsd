@@ -32,6 +32,25 @@ def _version_key(path: Path) -> tuple:
     return tuple(int(x) for x in m.group(1).split(".")) if m else ()
 
 
+CLAUDE_SESSION_MARKERS = (
+    "CLAUDECODE", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_EXECPATH",
+    "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_CODE_SESSION_ATTENDED",
+    "CLAUDE_CODE_SESSION_ID", "CLAUDE_PID", "CLAUDE_EFFORT",
+)
+
+
+def _claude_startup() -> str:
+    claude = resolve_claude_command()
+    if claude.startswith("echo "):
+        return claude
+    from ..agents import claude_session_command
+
+    try:
+        return claude_session_command(claude)
+    except OSError:
+        return claude
+
+
 def resolve_claude_command() -> str:
     """How to launch Claude Code: $DSD_CLAUDE_CMD, `claude` on the login-shell PATH,
     common install locations, then the newest binary bundled with the VS Code extension."""
@@ -101,8 +120,8 @@ class TerminalManager:
         master, slave = pty.openpty()
         _set_size(master, 32, 120)
         full_env = {**os.environ, **(env or {}), "TERM": "xterm-256color", "COLORTERM": "truecolor"}
-        full_env.pop("DSD_RUN_DIR", None)
-        full_env.pop("DSD_PROJECT_ROOT", None)
+        for key in ("DSD_RUN_DIR", "DSD_PROJECT_ROOT", *CLAUDE_SESSION_MARKERS):
+            full_env.pop(key, None)
         from ..appsupport import ensure_app_shim
 
         shim_dir = ensure_app_shim()  # packaged app: make `dsd` (and so `dsd mcp`) resolvable in the session
@@ -122,7 +141,7 @@ class TerminalManager:
         self.terms[tid] = term
         loop = asyncio.get_running_loop()
         loop.add_reader(master, self._on_readable, term)
-        startup = command or (resolve_claude_command() if kind == "claude" else None)
+        startup = command or (_claude_startup() if kind == "claude" else None)
         if setup:  # e.g. `uv sync` in a fresh worktree, then start the agent
             startup = f"{setup} && {startup}" if startup else setup
         if startup:

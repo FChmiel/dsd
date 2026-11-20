@@ -3,6 +3,7 @@ import { del, fmtNum, fmtTime, patch, post, projectPath, useApi, type Project } 
 import { href, linkProps, navigate } from "../router";
 import { Icon } from "../components/Icon";
 import { CliCard } from "../components/CliCard";
+import { ClaudeCard } from "../components/ClaudeCard";
 import { inApp, pickFolder } from "../native";
 
 interface Todo {
@@ -76,6 +77,7 @@ export function HomePage({ projects, reloadProjects }: { projects: Project[]; re
               <div className="dim">{d ? d.summary : "Loading…"}</div>
             </div>
           </div>
+          <ClaudeCard />
           <QuickAdd onAdded={(t) => { home.reload(); flash(t.due ? `Added for ${dayLabel(t.due, new Date())}` : "Added to Someday"); }} />
           {home.error && <div className="error-box">{home.error}</div>}
           {d && (

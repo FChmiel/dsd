@@ -165,10 +165,10 @@ def setup(force: bool = typer.Option(False, "--force", help="Overwrite dsd skill
         raise typer.Exit(1)
     if mcp == "missing":
         err.print("[yellow]The claude CLI isn't on your PATH.[/] Register the MCP server yourself with:\n  "
-                  + " ".join(agents.mcp_add_command()))
+                  + " ".join(agents.mcp_add_command()), soft_wrap=True)
         raise typer.Exit(1)
-    if mcp == "created":
-        console.print(f"  [green]{'created':9}[/] MCP server 'dsd' (user scope)")
+    if mcp in ("created", "updated"):
+        console.print(f"  [green]{mcp:9}[/] MCP server 'dsd' (user scope) → {' '.join(agents.mcp_command())}")
     console.print("dsd is set up for Claude Code. Start a project in a repo with `dsd init`.")
 
 

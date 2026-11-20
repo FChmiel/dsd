@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { del, fmtTime, post, put, tildify, useApi } from "../api";
 import { linkProps, navigate } from "../router";
 import { Icon } from "../components/Icon";
+import { ClaudeCard } from "../components/ClaudeCard";
 import { Markdown } from "../components/Markdown";
 import { TerminalView, type TermInfo } from "../components/TerminalPane";
 
@@ -34,20 +35,7 @@ export function SkillsPage({ sid, file }: { sid: string | null; file: string | n
   const terms = useApi<TermInfo[]>("/api/skills/terminals", { poll: 4000 });
   const [q, setQ] = useState("");
   const [activeTerm, setActiveTerm] = useState<string | null>(null);
-  const bundled = useApi<{ name: string; state: "missing" | "current" | "outdated" | "edited" }[]>("/api/skills/dsd");
-  const [installing, setInstalling] = useState(false);
   useEffect(() => { document.title = "Skills · dsd"; }, []);
-  const pending = (bundled.data ?? []).filter((b) => b.state === "missing" || b.state === "outdated");
-  const install = async () => {
-    setInstalling(true);
-    try {
-      await post("/api/skills/dsd/install", { force: false });
-      bundled.reload();
-      skills.reload();
-    } finally {
-      setInstalling(false);
-    }
-  };
 
   const list = skills.data ?? [];
   const current = sid ?? list.find((s) => s.editable)?.id ?? list[0]?.id ?? null;
@@ -76,14 +64,7 @@ export function SkillsPage({ sid, file }: { sid: string | null; file: string | n
           <a {...linkProps("/")}><Icon name="home" /> Home</a>
           <a className="active" {...linkProps("/skills")}><Icon name="skill" /> Skills</a>
         </nav>
-        {pending.length > 0 && (
-          <div className="card" style={{ margin: "8px 10px 0", padding: "8px 10px", fontSize: 12.5 }}>
-            <div>{pending.length} dsd skill{pending.length > 1 ? "s" : ""} {pending.every((b) => b.state === "missing") ? "not installed" : "to install or update"}:
-              <span className="mono muted"> {pending.map((b) => b.name).join(", ")}</span></div>
-            <button className="btn sm primary" style={{ marginTop: 6 }} disabled={installing} onClick={install}>
-              {installing ? "Installing…" : "Install into ~/.claude/skills"}</button>
-          </div>
-        )}
+        <ClaudeCard compact />
         <div style={{ padding: "8px 10px 2px" }}>
           <input className="input" style={{ width: "100%" }} placeholder="Filter skills…" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>

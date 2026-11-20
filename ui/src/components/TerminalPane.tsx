@@ -187,8 +187,7 @@ export function TerminalPane(props: {
         {terminals.length === 0 && (
           <div className="term-empty">
             <div className="big">Agent pane</div>
-            Start <b>Claude Code</b> in this project. Once you've run <code>dsd setup</code>, it has the dsd MCP server and
-            skills (<code>/dsd-plan</code>, <code>/dsd-develop</code>, <code>/dsd-review</code>, <code>/dsd-benchmark</code>…).
+            Start <b>Claude Code</b> in this project. Sessions started here get dsd's MCP tools and skills automatically (<code>/dsd-plan</code>, <code>/dsd-develop</code>, <code>/dsd-review</code>, <code>/dsd-benchmark</code>…).
             <div style={{ marginTop: 6 }}>Each new session gets its <b>own git worktree</b> by default, so parallel agents never edit the same checkout.</div>
             <div style={{ marginTop: 14, display: "flex", gap: 8 }}>
               <button className="term-btn" onClick={() => setLauncherOpen(true)}>New session…</button>

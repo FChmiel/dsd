@@ -174,3 +174,19 @@ def test_programs_in_a_session_hear_about_resizes(env):
         ws.send_text('{"type":"resize","rows":30,"cols":137}')
         assert b"SZ 137" in wait_for(ws, b"SZ 137")
     c.delete(f"/api/terminals/{term['id']}")
+
+
+def test_sessions_do_not_inherit_claude_code_session_markers(env, monkeypatch):
+    c, p = env
+    monkeypatch.setenv("CLAUDE_CODE_CHILD_SESSION", "1")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "parent")
+    monkeypatch.setenv("CLAUDE_CODE_USE_BEDROCK", "keep")
+    term = c.post(f"/api/p/{p.id}/terminals", json={"kind": "shell"}).json()
+    with c.websocket_connect(f"/api/terminals/{term['id']}/ws") as ws:
+        ws.send_bytes(b'echo "m=[$CLAUDE_CODE_CHILD_SESSION$CLAUDE_CODE_SESSION_ID] k=[$CLAUDE_CODE_USE_BEDROCK]"\r')
+        seen = b""
+        deadline = time.time() + 15
+        while b"k=[keep]" not in seen and time.time() < deadline:
+            seen += ws.receive_bytes()
+        assert b"m=[] k=[keep]" in seen
+    c.delete(f"/api/terminals/{term['id']}")
