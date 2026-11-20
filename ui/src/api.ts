@@ -104,7 +104,18 @@ export interface Project {
   id: string;
   name: string;
   root: string;
+  repo: string;
+  scope: string | null;
+  data_dir: string;
   docs_dir: string;
+}
+
+export function tildify(path: string): string {
+  return path.replace(/^\/Users\/[^/]+/, "~");
+}
+
+export function projectPath(p: Project): string {
+  return tildify(p.scope ? `${p.repo}/${p.scope}` : p.repo);
 }
 
 export interface Run {

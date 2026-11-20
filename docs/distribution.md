@@ -41,7 +41,8 @@ To install from the DMG instead:
 
 How to use it:
 1. Open **dsd**.
-2. Click **Choose folder…** and pick a git repo. The app offers to set it up (`dsd init`).
+2. Click **Choose folder…** and pick a git repo. The app offers to start a dsd project for it (`dsd init`). Its docs, plans and runs are kept in `~/.dsd/projects/`, not in the repo.
+   Run `dsd setup` once (after **Install dsd command**) to register the MCP server and skills with Claude Code.
 3. Click **+ New session**. Claude Code starts in a fresh worktree, already wired to the project's plans, docs and runs.
 4. Track experiments from any terminal with `dsd exec -b <benchmark> -- python train.py`. Scripts don't need to import anything.
 

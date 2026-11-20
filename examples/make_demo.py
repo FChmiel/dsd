@@ -146,21 +146,20 @@ def main() -> None:
     (target / "configs" / "data.yml").write_text("source: synthetic\nversion: v1\nrows: 1500\nsplit: {train: 0.8, test: 0.2}\n")
     (target / "README.md").write_text("# churn-model\n\nToy churn model used to demo dsd.\n")
 
-    from dsd import registry
-    from dsd.init import init_project, refresh_claude_md
-    from dsd.project import load_project
+    from dsd.init import init_project
+    from dsd.project import all_projects
 
-    init_project(target, name="churn-model")
-    registry.register(target)
-    p = load_project(target)
+    for old in all_projects():
+        if old.repo == target:
+            shutil.rmtree(old.data_dir)
+    p = init_project(target, name="churn-model").project
     (p.plans_path / "main.md").write_text(MAIN_PLAN)
     (p.plans_path / "feature-eng.md").write_text(FEATURE_PLAN)
     (p.docs_path / "decisions" / "0001-primary-metric.md").write_text(DECISION)
     (p.docs_path / "notes" / "2026-11-09-eda.md").write_text(EDA_NOTE)
     (p.docs_path / "experiments" / "churn-v1.md").write_text(BENCH_DOC)
-    refresh_claude_md(p, [("T-3", "Baseline models on churn-v1"), ("T-5", "Logistic regression lr sweep")])
     sh(*git, "add", "-A", cwd=target)
-    sh(*git, "commit", "-qm", "Initial churn project with dsd plans\n\nTask: T-1", cwd=target)
+    sh(*git, "commit", "-qm", "Initial churn project\n\nTask: T-1", cwd=target)
     sh(*git, "commit", "-q", "--allow-empty", "-m", "Add naive Bayes and logreg trainers\n\nTask: T-4", cwd=target)
 
     dsd_cmd = [sys.executable, "-m", "dsd.cli"]
@@ -182,8 +181,7 @@ def main() -> None:
        sys.executable, "-c", "import sys; print('loss is nan, aborting'); sys.exit(1)", cwd=target, check=False)
 
     write_report(p)
-    sh(*git, "add", "-A", cwd=target)
-    sh(*git, "commit", "-qm", "Leaderboard report for churn-v1\n\nTask: T-3", cwd=target)
+    sh(*git, "commit", "-q", "--allow-empty", "-m", "Leaderboard report for churn-v1\n\nTask: T-3", cwd=target)
 
     # pending agent edit + a review comment, for the Changes view
     train = target / "train.py"

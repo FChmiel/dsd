@@ -23,7 +23,7 @@ cask "dsd" do
     system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{appdir}/dsd.app"]
   end
 
-  # ~/.dsd is deliberately not zapped: it holds your project registry and git worktrees (possibly unmerged work).
+  # ~/.dsd is deliberately not zapped: it holds your projects' docs, plans and runs, and git worktrees (possibly unmerged work).
   zap trash: [
     "~/Library/Application Support/dev.dsd.app",
     "~/Library/Caches/dev.dsd.app",

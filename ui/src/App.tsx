@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, del, post, useApi, type Project } from "./api";
+import { api, del, post, projectPath, tildify, useApi, type Project } from "./api";
 import { href, linkProps, navigate, useRoute } from "./router";
 import { Ctx, type AppCtx } from "./context";
 import { TerminalPane, type TermInfo } from "./components/TerminalPane";
@@ -212,8 +212,9 @@ function Workspace({ project, projects }: { project: Project; projects: Project[
             })}
           </nav>
           <div className="sidebar-foot">
-            <div className="mono" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={project.root}>
-              {project.root.replace(/^\/Users\/[^/]+/, "~")}
+            <div className="mono" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+              title={`${projectPath(project)}\nDocs, plans and runs: ${tildify(project.data_dir)}`}>
+              {projectPath(project)}
             </div>
             <div style={{ marginTop: 6, display: "flex", gap: 6, alignItems: "center" }}>
               <button className="btn sm ghost" onClick={() => setPaneOpen((o) => !o)}>
@@ -272,7 +273,7 @@ function ProjectSwitcher({ current, projects }: { current: Project; projects: Pr
             <button key={p.id} className={`menu-item ${p.id === current.id ? "active" : ""}`}
               onClick={() => { setOpen(false); navigate(href(p.id, "overview")); }}>
               <div>{p.name}</div>
-              <div className="muted mono" style={{ fontSize: 11 }}>{p.root.replace(/^\/Users\/[^/]+/, "~")}</div>
+              <div className="muted mono" style={{ fontSize: 11 }}>{projectPath(p)}</div>
             </button>
           ))}
           <div style={{ borderTop: "1px solid var(--border)", margin: "4px 0" }} />

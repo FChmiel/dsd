@@ -3,9 +3,10 @@
 An agentic development platform for data scientists: project **plans and docs**, **experiment tracking and benchmarks**, and **Claude Code** in one workspace.
 
 - **Plans:** markdown checklists with project-wide task ids (`T-12`). There's one central plan plus sub-plans, and edits only change the characters they need to.
-- **Docs:** decisions, notes and HTML reports live in `docs/`. Docs support live `dsd-runs` tables and `![[report.html]]` embeds.
+- **Docs:** decisions, notes and HTML reports live in the project's `docs/` folder. Docs support live `dsd-runs` tables and `![[report.html]]` embeds.
 - **Experiments:** use `dsd.run(...)` or `dsd exec -- <cmd>`. Each run records params, metrics, info and HTML artifacts, along with its git state, command and dataset references. Benchmarks rank runs, and grouped leaderboards show mean ± std across seeds.
-- **Agents:** `dsd init` registers an MCP server and installs five Claude Code skills: `/dsd-plan`, `/dsd-next-task`, `/dsd-run-experiment`, `/dsd-distill` and `/dsd-report`.
+- **Agents:** `dsd setup` registers the dsd MCP server for your user and installs five Claude Code skills: `/dsd-plan`, `/dsd-next-task`, `/dsd-run-experiment`, `/dsd-distill` and `/dsd-report`.
+- **Outside your repo:** dsd keeps all of a project's state in `~/.dsd/projects/<id>/` and never writes into the repo, so you can use it on any codebase, including a large shared monorepo.
 - **App:** `dsd ui` serves the plans board, docs, runs, compare, leaderboards, diff review with comments you can send to an agent, and embedded Claude/shell terminals.
 
 ## Home: your command centre
@@ -42,9 +43,31 @@ packaging/build-macos.sh # optional: build dsd.app + DMG locally (needs Rust, No
 ## Quick start
 
 ```sh
-cd my-project
-dsd init                 # .dsd/, docs/plans/main.md, CLAUDE.md block, .mcp.json, .claude/skills
+dsd setup                # once: registers the MCP server (user scope) and installs the skills in ~/.claude/skills
+cd ~/code/my-repo
+dsd init                 # starts a project for this repo in ~/.dsd/projects/<id>/; the repo is untouched
 dsd ui                   # opens the app at http://127.0.0.1:8765
+```
+
+## Where things live
+
+dsd stores nothing in your repo: no `.dsd/` folder, no `CLAUDE.md` or `.gitignore` edits, no `.mcp.json`. Each project has a data directory (`dsd info` prints it; `DSD_HOME` overrides `~/.dsd`):
+
+```
+~/.dsd/projects/<id>/
+  project.toml        # id, name, repo = "/abs/path/to/main/checkout", optional scope, [worktree], [[backup]]
+  docs/               # plans/ (main.md + sub-plans), decisions/, notes/, reports/, experiments/
+  runs/  index.db     # experiment run bundles and their SQLite index
+  benchmarks.toml  review.json  worktrees.json
+```
+
+dsd finds the project from wherever you are: the repo root, any subdirectory, a linked git worktree of the repo (dsd's own or Pane's), or the data directory itself. Set `DSD_PROJECT_ROOT` to any of those paths to override the lookup for the CLI, the SDK and the MCP server.
+
+By default a project covers a whole repo. To run several projects in one monorepo, give each a scope; the most specific scope wins:
+
+```sh
+dsd init ~/code/nory --name forecasting --scope apps/forecasting
+dsd init ~/code/nory --name pricing --scope services/pricing
 ```
 
 Track experiments:
@@ -85,13 +108,13 @@ dsd ui .demo/churn-model
 By default, **+ New session** in the agent pane starts Claude in a **new git worktree** on branch `dsd/<name>`, so parallel agents never edit the same checkout. The launcher can also attach to an existing worktree or use the main checkout. "Work on this in a worktree" on a plan task creates (or reuses) a worktree named after the task.
 
 - Worktrees live in `~/.dsd/worktrees/<project>/<name>`.
-- dsd copies its own wiring into each worktree (`.mcp.json`, skills, `CLAUDE.md` block) along with any files you list. These copies are never shown as changes and never committed.
-- Experiment runs made inside a worktree are stored in the main project's run history, tagged with the worktree and branch.
+- dsd copies the local files you list (by default `.env` and `.env.local`) into each new worktree. These copies are never shown as changes and never committed.
+- Plans, docs and runs are shared by every worktree. Experiment runs made inside a worktree are tagged with the worktree and branch.
 - **Changes** reviews a worktree's whole branch against its base: its commits, uncommitted edits and new files. Comments go to that worktree's agent.
 - **Worktrees** shows ahead/behind and dirty status, and lets you commit, merge (merge commit or squash; a merge with conflicts is aborted cleanly) or remove each worktree.
 
 ```toml
-# .dsd/project.toml
+# ~/.dsd/projects/<id>/project.toml
 [worktree]
 setup = "uv sync"          # runs in a new worktree before the agent starts
 copy = [".env", "data/local.parquet"]
@@ -117,7 +140,7 @@ Terminals keep running if you close the browser tab, and reattach when you reope
 ## Develop
 
 ```sh
-uv run pytest                           # Python: 50 tests
+uv run pytest                           # Python tests
 cd ui && npm install && npm run dev     # UI dev server on :5173, proxied to `dsd ui --no-open` on :8765
 cd ui && npm run build                  # builds into src/dsd/web/dist (served by `dsd ui`)
 ```

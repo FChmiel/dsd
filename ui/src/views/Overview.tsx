@@ -1,4 +1,4 @@
-import { fmtTime, type Run, type Task } from "../api";
+import { fmtTime, projectPath, tildify, type Run, type Task } from "../api";
 import { useApp } from "../context";
 import { href, linkProps } from "../router";
 import { RunsTable, varyingParams } from "../components/bits";
@@ -15,7 +15,7 @@ export function Overview({ data }: { data: any; reload: () => void }) {
     <div className="page">
       <div className="page-head">
         <h1>{project.name}</h1>
-        <span className="sub mono">{project.root.replace(/^\/Users\/[^/]+/, "~")}</span>
+        <span className="sub mono" title={`Docs, plans and runs: ${tildify(project.data_dir)}`}>{projectPath(project)}</span>
         <span className="spacer" />
         <button className="btn" onClick={() => sendToAgent("/dsd-next-task")}>Next task with Claude</button>
         <button className="btn primary" onClick={() => sendToAgent("/dsd-plan ")}>Plan with Claude</button>
