@@ -646,6 +646,37 @@ def runs_add(
                   + (f" on {benchmark}" if benchmark else "") + f"  [dim](dsd runs show {short(bundle.id)})[/]")
 
 
+@runs_app.command("edit")
+def runs_edit(
+    ref: str = typer.Argument(..., help="Run id (or a unique suffix)."),
+    name: str = typer.Option(None, "--name", "-n", help="A short, informative name."),
+    description: str = typer.Option(None, "--description", "-d", help="What the run tried, or why it failed."),
+    metric: list[str] = typer.Option(None, "--metric", "-m", help="key=value (repeatable)."),
+    metrics_json: Path = typer.Option(None, "--metrics-json", help="JSON file of metrics (nested keys are flattened)."),
+    param: list[str] = typer.Option(None, "--param", "-p", help="key=value (repeatable)."),
+    link: list[str] = typer.Option(None, "--link", "-l", help="label=URL (repeatable)."),
+    artifact: list[Path] = typer.Option(None, "--artifact", "-a", help="File or folder to copy into the run."),
+    tag: list[str] = typer.Option(None, "--tag"),
+) -> None:
+    """Improve a recorded run: name, description, metrics read from its report, params, links, artifacts."""
+    import json as _json
+
+    from .tracking.query import _coerce
+    from .tracking.record import RecordError, update_run
+
+    p = _project()
+    values: dict = _json.loads(metrics_json.read_text()) if metrics_json else {}
+    values.update(_kv(metric, "--metric"))
+    try:
+        bundle = update_run(p, ref, name=name, description=description, metrics=values,
+                            params={k: _coerce(v) for k, v in _kv(param, "--param").items()},
+                            links=_kv(link, "--link"), artifacts=artifact, tags=tag)
+    except RecordError as e:
+        err.print(f"[red]{e}[/red]")
+        raise typer.Exit(1)
+    console.print(f"[green]updated[/] run [bold]{short(bundle.id)}[/] {bundle.read_meta()['name']}")
+
+
 @runs_app.command("rm")
 def runs_rm(refs: list[str], yes: bool = typer.Option(False, "--yes", "-y")) -> None:
     """Delete runs (their bundles)."""
@@ -1079,6 +1110,13 @@ def exec_(
     st = meta["status"]
     err.print(f"[dim]dsd:[/] run [bold]{short(bundle.id)}[/] {meta['name']} → [{_RUN_STYLE.get(st, 'white')}]{st}[/]"
               f"  [dim](dsd runs show {short(bundle.id)})[/]")
+    found = meta.get("info", {}).get("detected_outputs") or []
+    if found:
+        n = len(bundle.read_manifest())
+        err.print(f"[dim]dsd:[/] attached {n} output file{'' if n == 1 else 's'} from {meta['info']['links']['outputs']}")
+    if not bundle.read_metrics():
+        err.print(f"[dim]dsd:[/] no metrics recorded. Ask Claude to pick them from the outputs: "
+                  f"[bold]/dsd-benchmark run {short(bundle.id)}[/]")
     raise typer.Exit(code)
 
 

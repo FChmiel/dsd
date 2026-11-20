@@ -174,7 +174,9 @@ def test_exec_success_and_failure(project, tmp_path, capfd):
 def test_default_name():
     assert default_name(["uv", "run", "python", "train.py", "--x"]) == "train"
     assert default_name(["python", "-m", "pkg.bench"]) == "bench"
-    assert default_name(["make", "bench"]) == "make"
+    assert default_name(["make", "bench"]) == "make bench"
+    assert default_name(["just", "bench", "run", "configs/sof_baseline.yaml", "--local"]) == "sof_baseline"
+    assert default_name(["just", "bench", "run", "--local"]) == "just bench run"
 
 
 def test_cli_runs_and_bench(project, monkeypatch):
@@ -240,3 +242,70 @@ def test_cli_runs_add(project, tmp_path, monkeypatch):
         d = idx.run_detail(run["id"])
     assert d["metrics"] == {"auc": 0.82, "f1.macro": 0.7} and len(d["git"]["sha"]) == 40
     assert CliRunner().invoke(app, ["runs", "add", "x", "-m", "nonsense"]).exit_code == 2
+
+
+OUTPUT_SCRIPT = """
+import os, sys, time
+out = sys.argv[1]
+os.makedirs(out, exist_ok=True)
+open(os.path.join(out, "report.html"), "w").write("<h1>bench</h1>")
+open(os.path.join(out, "summary.json"), "w").write('{"cost": 12.5}')
+open(os.path.join(out, "big.bin"), "wb").write(b"0" * 100)
+print("solved 3 days")
+print(f"  report {out}/report.html")
+print(f"old file {sys.argv[2]}")
+"""
+
+
+def test_exec_attaches_outputs_the_command_mentions(project, tmp_path, capfd):
+    old = tmp_path / "old.html"
+    old.write_text("old")
+    import os as _os
+    _os.utime(old, (1_000_000, 1_000_000))
+    script = tmp_path / "bench.py"
+    script.write_text(OUTPUT_SCRIPT)
+    out = tmp_path / "runs" / "20261120_abc_sof_baseline"
+    bundle, code = exec_command(project, [sys.executable, str(script), str(out), str(old)], benchmark="sof_baseline", quiet=True)
+    assert code == 0
+    meta = bundle.read_meta()
+    assert meta["info"]["links"]["outputs"] == str(out)
+    paths = sorted(a["path"] for a in bundle.read_manifest())
+    assert paths == ["outputs/report.html", "outputs/summary.json"]
+    assert meta["info"]["detected_outputs"] == [str(out / "report.html")]
+
+
+def test_update_a_run_after_the_fact(project, tmp_path):
+    from dsd.tracking.record import RecordError, update_run
+
+    with dsd.run("bench") as r:
+        r.log(loss=1.0)
+    rid = r.id
+    report = tmp_path / "r.html"
+    report.write_text("<p>x</p>")
+    update_run(project, rid[-8:], name="sof_baseline · today preset", description="Baseline on 3 brands, 1 week.",
+               metrics={"cost": 12.5, "hours": 812}, params={"preset": "today"}, links={"dash": "https://x"},
+               artifacts=[report], tags=["baseline"])
+    with Index(project) as idx:
+        idx.sync()
+        d = idx.run_detail(rid)
+    assert d["name"] == "sof_baseline · today preset" and d["info"]["description"] == "Baseline on 3 brands, 1 week."
+    assert d["metrics"]["cost"] == 12.5 and d["metrics"]["loss"] == 1.0 and d["params"] == {"preset": "today"}
+    assert d["info"]["links"]["dash"] == "https://x" and "baseline" in d["tags"]
+    assert [a["path"] for a in d["artifact_list"]] == ["r.html"]
+    with pytest.raises(RecordError):
+        update_run(project, rid, metrics={"bad": "x"})
+    with pytest.raises(RecordError, match="No run"):
+        update_run(project, "zzzzzzzz", name="x")
+
+
+def test_cli_runs_edit(project, monkeypatch):
+    monkeypatch.chdir(project.root)
+    with dsd.run("bench") as r:
+        pass
+    res = CliRunner().invoke(app, ["runs", "edit", r.id[-8:], "--name", "better name", "--description", "why it failed",
+                                   "-m", "auc=0.8"])
+    assert res.exit_code == 0, res.output
+    with Index(project) as idx:
+        idx.sync()
+        d = idx.run_detail(r.id)
+    assert d["name"] == "better name" and d["info"]["description"] == "why it failed" and d["metrics"]["auc"] == 0.8

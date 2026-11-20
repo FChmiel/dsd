@@ -3,6 +3,7 @@ import { SessionLauncher, type SessionTarget } from "./SessionLauncher";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { WebglAddon } from "@xterm/addon-webgl";
 import "@xterm/xterm/css/xterm.css";
 
 export interface TermInfo {
@@ -53,12 +54,32 @@ export function TerminalView({ tid, active, onExit }: { tid: string; active: boo
     term.loadAddon(fit);
     term.loadAddon(new WebLinksAddon());
     term.open(host.current!);
+    try {
+      const webgl = new WebglAddon();
+      webgl.onContextLoss(() => webgl.dispose());
+      term.loadAddon(webgl);
+    } catch { /* fall back to the default renderer */ }
     termRef.current = term;
     fitRef.current = fit;
 
     let disposed = false;
     let retry: number | undefined;
     const enc = new TextEncoder();
+
+    let unacked = 0;
+    let ackTimer: number | undefined;
+    const flushAck = () => {
+      window.clearTimeout(ackTimer);
+      ackTimer = undefined;
+      const ws = wsRef.current;
+      if (unacked > 0 && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "ack", bytes: unacked }));
+      unacked = 0;
+    };
+    const written = (n: number) => {
+      unacked += n;
+      if (unacked >= 65536) flushAck();
+      else if (ackTimer === undefined) ackTimer = window.setTimeout(flushAck, 50);
+    };
 
     const sendResize = () => {
       const ws = wsRef.current;
@@ -71,6 +92,7 @@ export function TerminalView({ tid, active, onExit }: { tid: string; active: boo
       wsRef.current = ws;
       let first = true;
       ws.onopen = () => {
+        ws.send(JSON.stringify({ type: "hello", flow: true }));
         try { fit.fit(); } catch { /* hidden */ }
         sendResize();
       };
@@ -79,7 +101,9 @@ export function TerminalView({ tid, active, onExit }: { tid: string; active: boo
           term.reset();
           first = false;
         }
-        term.write(typeof ev.data === "string" ? ev.data : new Uint8Array(ev.data));
+        const chunk = typeof ev.data === "string" ? ev.data : new Uint8Array(ev.data);
+        const n = typeof chunk === "string" ? chunk.length : chunk.byteLength;
+        term.write(chunk, () => written(n));
       };
       ws.onclose = (ev) => {
         if (disposed) return;
@@ -109,6 +133,7 @@ export function TerminalView({ tid, active, onExit }: { tid: string; active: boo
     let refit: number | undefined;
     const ro = new ResizeObserver(() => {
       window.clearTimeout(refit);
+      window.clearTimeout(ackTimer);
       refit = window.setTimeout(() => {
         if (host.current && host.current.offsetWidth > 0) {
           try { fit.fit(); } catch { /* ignore */ }
@@ -121,6 +146,7 @@ export function TerminalView({ tid, active, onExit }: { tid: string; active: boo
       disposed = true;
       window.clearTimeout(retry);
       window.clearTimeout(refit);
+      window.clearTimeout(ackTimer);
       ro.disconnect();
       dataSub.dispose();
       resizeSub.dispose();

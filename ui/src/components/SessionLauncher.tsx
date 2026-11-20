@@ -22,6 +22,8 @@ export interface Worktree {
   managed: boolean;
   origin: "main" | "dsd" | "adopted" | "current";
   auto_named?: boolean;
+  base_ref?: string | null;
+  base_stale?: number | null;
   branch_pushed?: boolean;
 }
 

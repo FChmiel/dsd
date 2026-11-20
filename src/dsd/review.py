@@ -141,6 +141,10 @@ def change_count(project: Project, root: Path | None = None, base: str | None = 
     """Number of files working_changes would show, without building the diffs."""
     root = root or project.root
     spec = _spec(project)
+    if base and has_head(root):
+        from .worktrees import effective_base
+
+        base = effective_base(root, base)
     mb = _git(root, "merge-base", base, "HEAD").strip() if base and has_head(root) else ""
     if mb:
         paths = set(_git(root, "diff", "--name-only", mb, *spec).splitlines())
@@ -168,6 +172,9 @@ def working_changes(project: Project, root: Path | None = None, base: str | None
     spec = _spec(project)
     since = "HEAD"
     if base and has_head(root):
+        from .worktrees import effective_base
+
+        base = effective_base(root, base)
         mb = _git(root, "merge-base", base, "HEAD").strip()
         since = mb or "HEAD"
     if has_head(root):

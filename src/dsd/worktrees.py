@@ -141,12 +141,61 @@ def is_bootstrap(rel: str, copied: list[str]) -> bool:
     return any(rel == c or rel.startswith(c.rstrip("/") + "/") for c in copied)
 
 
+FETCH_TIMEOUT = 20
+
+
+def upstream_of(root: Path, base: str) -> str | None:
+    """The remote copy of a local branch (its upstream, else origin/<branch>), if there is one."""
+    r = _git(root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", f"{base}@{{upstream}}", check=False)
+    if r.code == 0 and r.out.strip():
+        return r.out.strip()
+    if _git(root, "rev-parse", "--verify", "-q", f"refs/remotes/origin/{base}", check=False).code == 0:
+        return f"origin/{base}"
+    return None
+
+
+def _is_ancestor(root: Path, a: str, b: str) -> bool:
+    return _git(root, "merge-base", "--is-ancestor", a, b, check=False).code == 0
+
+
+def effective_base(root: Path, base: str | None) -> str | None:
+    """What to compare a branch with: its base, or the base's remote copy when the branch is built on that
+    (so a stale local main doesn't make every change merged since look like this branch's work)."""
+    if not base:
+        return None
+    up = upstream_of(root, base)
+    if not up:
+        return base
+    mb_up = _git(root, "merge-base", up, "HEAD", check=False).out.strip()
+    if not mb_up:
+        return base
+    mb_local = _git(root, "merge-base", base, "HEAD", check=False).out.strip()
+    return up if not mb_local or _is_ancestor(root, mb_local, mb_up) else base
+
+
+def _fetch(root: Path, base: str) -> None:
+    up = upstream_of(root, base)
+    if not up or "/" not in up:
+        return
+    remote, branch = up.split("/", 1)
+    try:
+        subprocess.run(["git", "fetch", "--quiet", remote, branch], cwd=root, capture_output=True, timeout=FETCH_TIMEOUT)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+
 def _status(path: Path, base: str | None, copied: list[str] | None = None, scope: str | None = None) -> dict:
     spec = ["--", scope] if scope else []
     st = [ln for ln in _git(path, "status", "--porcelain", *spec, check=False).out.splitlines()
           if not is_bootstrap(ln[3:].split(" -> ")[-1], copied or [])]
-    info: dict = {"dirty": len(st), "ahead": None, "behind": None, "last_commit": None}
+    info: dict = {"dirty": len(st), "ahead": None, "behind": None, "last_commit": None, "base_ref": None, "base_stale": None}
     if base:
+        up = upstream_of(path, base)
+        if up:
+            n = _git(path, "rev-list", "--count", f"{base}..{up}", check=False).out.strip()
+            info["base_stale"] = int(n) if n.isdigit() else None
+        base = effective_base(path, base)
+        info["base_ref"] = base
         r = _git(path, "rev-list", "--left-right", "--count", f"{base}...HEAD", check=False)
         if r.code == 0 and r.out.strip():
             behind, ahead = r.out.split()
@@ -334,7 +383,9 @@ def _bootstrap(project: Project, src: Path, dest: Path) -> list[str]:
 
 
 def create_worktree(project: Project, name: str | None = None, base: str | None = None,
-                    task: str | None = None, task_title: str | None = None) -> dict:
+                    task: str | None = None, task_title: str | None = None, fetch: bool = True) -> dict:
+    """With `fetch`, update the base from its remote first and start from the remote copy when the local
+    branch has nothing the remote lacks, so new worktrees don't start behind."""
     main = _main(project)
     if _git(main, "rev-parse", "--verify", "-q", "HEAD", check=False).code != 0:
         raise WorktreeError("The repo has no commits yet; commit once before creating worktrees.")
@@ -358,7 +409,13 @@ def create_worktree(project: Project, name: str | None = None, base: str | None 
     branch = f"{BRANCH_PREFIX}{name}"
     path = root / name
     root.mkdir(parents=True, exist_ok=True)
-    _git(main, "worktree", "add", "-b", branch, str(path), base)
+    start = base
+    if fetch and _git(main, "rev-parse", "--verify", "-q", f"refs/heads/{base}", check=False).code == 0:
+        _fetch(main, base)
+        up = upstream_of(main, base)
+        if up and _is_ancestor(main, base, up):
+            start = up
+    _git(main, "worktree", "add", "--no-track", "-b", branch, str(path), start)
     copied = _bootstrap(project, main, path)
     meta[name] = {"path": str(path.resolve()), "branch": branch, "base": base, "task": task,
                   "created": time.time(), "copied": copied, "origin": "dsd", "auto_named": auto_named}

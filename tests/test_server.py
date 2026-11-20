@@ -190,3 +190,34 @@ def test_sessions_do_not_inherit_claude_code_session_markers(env, monkeypatch):
             seen += ws.receive_bytes()
         assert b"m=[] k=[keep]" in seen
     c.delete(f"/api/terminals/{term['id']}")
+
+
+def test_heavy_output_pauses_until_the_browser_catches_up(env):
+    import sys
+
+    from dsd.web import terminals as tmod
+
+    c, p = env
+    term = c.post(f"/api/p/{p.id}/terminals", json={"kind": "shell"}).json()
+    with c.websocket_connect(f"/api/terminals/{term['id']}/ws") as ws:
+        ws.send_text('{"type":"hello","flow":true}')
+        ws.send_bytes(f"{sys.executable} -c \"import sys; sys.stdout.write('x' * 3_000_000); print(); print('DONE')\"\r".encode())
+        got, frames = 0, 0
+        deadline = time.time() + 20
+        while got <= tmod.HIGH_WATER and time.time() < deadline:
+            got += len(ws.receive_bytes())
+            frames += 1
+        live = c.app.state.terminals.terms[term["id"]]
+        time.sleep(0.5)
+        assert live.paused and got < 3_000_000
+        assert frames < got / 4096
+        ws.send_text(f'{{"type":"ack","bytes":{got}}}')
+        seen = b""
+        deadline = time.time() + 30
+        while b"DONE" not in seen and time.time() < deadline:
+            chunk = ws.receive_bytes()
+            seen = (seen + chunk)[-8192:]
+            got += len(chunk)
+            ws.send_text(f'{{"type":"ack","bytes":{len(chunk)}}}')
+        assert b"DONE" in seen and not live.paused
+    c.delete(f"/api/terminals/{term['id']}")

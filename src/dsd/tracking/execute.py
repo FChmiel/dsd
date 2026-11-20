@@ -11,9 +11,11 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import yaml
@@ -54,14 +56,68 @@ def ingest_metrics_json(bundle: Bundle) -> None:
         bundle.write_meta(meta)
 
 
+CONFIG_SUFFIXES = (".yaml", ".yml", ".json", ".toml", ".cfg", ".ini")
+OUTPUT_SUFFIXES = {".html", ".htm", ".json", ".csv", ".md", ".txt", ".png", ".svg", ".jpg", ".jpeg", ".pdf", ".yaml", ".yml"}
+MAX_OUTPUT_FILE = 10_000_000
+MAX_OUTPUT_TOTAL = 50_000_000
+PATH_RE = re.compile(r"(?:~|\.{0,2})?/?[\w.@+-]+(?:/[\w.@+-]+)+")
+
+
 def default_name(cmd: list[str]) -> str:
-    """`uv run python train.py --x` -> 'train'; `make bench` -> 'make'."""
+    """`uv run python train.py --x` -> 'train'; `just bench run configs/base.yaml` -> 'base'; `make bench` -> 'make bench'."""
     for arg in cmd:
         if not arg.startswith("-") and Path(arg).suffix in (".py", ".sh", ".ipynb", ".R", ".jl"):
             return Path(arg).stem
     if "-m" in cmd and cmd.index("-m") + 1 < len(cmd):
         return cmd[cmd.index("-m") + 1].rsplit(".", 1)[-1]
-    return Path(cmd[0]).name
+    for arg in cmd:
+        if not arg.startswith("-") and Path(arg).suffix in CONFIG_SUFFIXES:
+            return Path(arg).stem
+    words = [a for a in cmd if not a.startswith("-")][:3] or cmd[:1]
+    return " ".join([Path(words[0]).name, *words[1:]])
+
+
+def detect_outputs(log: Path, cwd: Path, since: float) -> list[Path]:
+    """Files the command's output mentions (e.g. 'report /path/to/report.html') that it wrote during the run."""
+    try:
+        with open(log, "rb") as fh:
+            fh.seek(max(0, log.stat().st_size - 4_000_000))
+            text = fh.read().decode(errors="replace")
+    except OSError:
+        return []
+    found: list[Path] = []
+    for raw in PATH_RE.findall(text):
+        candidate = Path(os.path.expanduser(raw.rstrip(".,:;)"))) if raw.startswith("~") else Path(raw.rstrip(".,:;)"))
+        path = candidate if candidate.is_absolute() else cwd / candidate
+        try:
+            if path.is_file() and path.stat().st_mtime >= since and path.resolve() not in found:
+                found.append(path.resolve())
+        except OSError:
+            continue
+        if len(found) >= 20:
+            break
+    return found
+
+
+def attach_outputs(bundle: Bundle, outputs: list[Path], since: float) -> dict:
+    """Copy each detected file, and files written next to it during the run, into the run's artifacts/outputs/."""
+    picked: dict[str, Path] = {}
+    for out in outputs:
+        for f in [out, *sorted(out.parent.iterdir())]:
+            try:
+                st = f.stat()
+            except OSError:
+                continue
+            if (f.is_file() and f.suffix.lower() in OUTPUT_SUFFIXES and st.st_size <= MAX_OUTPUT_FILE
+                    and st.st_mtime >= since and f.name not in picked):
+                picked[f.name] = f
+    total = 0
+    for name, f in picked.items():
+        total += f.stat().st_size
+        if total > MAX_OUTPUT_TOTAL:
+            break
+        bundle.add_artifact(f, name=f"outputs/{name}")
+    return {"outputs": str(outputs[0].parent)} if outputs else {}
 
 
 def exec_command(
@@ -73,6 +129,7 @@ def exec_command(
         raise ValueError("no command given")
     task = task or os.environ.get(ENV_TASK)
     benchmark = benchmark or os.environ.get(ENV_BENCHMARK)
+    started = time.time() - 1
     bundle = create_bundle(
         project.runs_path, project.root, project.id, name=name or default_name(cmd),
         benchmark=benchmark, task=task, params=params, tags=tags, datasets=datasets, command=list(cmd),
@@ -119,6 +176,12 @@ def exec_command(
             code = proc.wait()
         status = "killed"
     ingest_metrics_json(bundle)
+    outputs = detect_outputs(log_path, Path.cwd(), started)
+    if outputs:
+        links = attach_outputs(bundle, outputs, started)
+        info = bundle.read_meta().get("info", {})
+        bundle.update_meta(info={**info, "links": {**info.get("links", {}), **links},
+                                 "detected_outputs": [str(p) for p in outputs]})
     bundle.rescan_artifacts()
     fields = {"status": status, "ended_at": now_iso(), "exit_code": code}
     if status == "failed":
