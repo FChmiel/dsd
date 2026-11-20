@@ -113,6 +113,9 @@ input, select, textarea { font: inherit; color: var(--text); }
 .main { min-width: 0; min-height: 0; overflow: auto; display: flex; flex-direction: column; }
 .agent { display: flex; min-height: 0; border-left: 1px solid var(--border); background: var(--term-bg); position: relative; }
 .agent.collapsed { width: 0; border: 0; }
+.app.agent-full > .sidebar, .app.agent-full > .main { display: none; }
+.app.agent-full > .agent { border-left: 0; }
+.term-context { align-self: center; padding: 0 10px; font-size: 12px; font-weight: 600; color: var(--term-fg, #e6e5e0); opacity: 0.8; white-space: nowrap; }
 .resizer {
   position: absolute; left: -3px; top: 0; bottom: 0; width: 6px; cursor: col-resize; z-index: 5;
 }

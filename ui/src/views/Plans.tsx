@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, patch, post, put, useApi, type Task, type TaskStatus } from "../api";
+import { del, patch, post, put, useApi, type Task, type TaskStatus } from "../api";
 import { useApp } from "../context";
 import { href, linkProps, navigate } from "../router";
 import { Markdown } from "../components/Markdown";
 import { RunsTable, varyingParams } from "../components/bits";
+import { Icon } from "../components/Icon";
 
 const STATUSES: TaskStatus[] = ["todo", "doing", "blocked", "done", "dropped"];
 const NEXT: Record<TaskStatus, TaskStatus> = { todo: "doing", doing: "done", done: "todo", blocked: "doing", dropped: "todo" };
@@ -16,7 +17,7 @@ export function Plans({ slug, focus }: { slug: string; focus: string | null }) {
   const [showDone, setShowDone] = useState(true);
   const [newPlan, setNewPlan] = useState<string | null>(null);
 
-  const reloadAll = () => { plan.reload(); plans.reload(); };
+  const reloadAll = () => Promise.all([plan.reload(), plans.reload()]).then(() => undefined);
 
   return (
     <div className="page">
@@ -94,14 +95,23 @@ function PlanEditor({ path, initial, onSaved }: { path: string; initial: string;
   );
 }
 
-function TaskBoard({ tasks, slug, focus, showDone, setShowDone, reload }: {
-  tasks: Task[]; slug: string; focus: string | null; showDone: boolean; setShowDone: (b: boolean) => void; reload: () => void;
+function TaskBoard({ tasks: loaded, slug, focus, showDone, setShowDone, reload }: {
+  tasks: Task[]; slug: string; focus: string | null; showDone: boolean; setShowDone: (b: boolean) => void; reload: () => Promise<void>;
 }) {
-  const { project } = useApp();
+  const { project, toast } = useApp();
   const [open, setOpen] = useState<string | null>(focus);
   const [title, setTitle] = useState("");
+  const [pending, setPending] = useState<Record<string, TaskStatus | "deleted">>({});
   useEffect(() => { if (focus) setOpen(focus); }, [focus]);
 
+  const tasks = loaded
+    .filter((t) => !t.id || pending[t.id] !== "deleted")
+    .map((t) => (t.id && pending[t.id] && pending[t.id] !== "deleted" ? { ...t, status: pending[t.id] as TaskStatus } : t));
+  const settle = (ids: string[]) => setPending((p) => {
+    const n = { ...p };
+    ids.forEach((id) => delete n[id]);
+    return n;
+  });
   const visible = tasks.filter((t) => showDone || (t.status !== "done" && t.status !== "dropped") || t.id === open);
   const counts = useMemo(() => {
     const c: Record<string, number> = {};
@@ -115,8 +125,37 @@ function TaskBoard({ tasks, slug, focus, showDone, setShowDone, reload }: {
   };
 
   const setStatus = async (t: Task, status: TaskStatus) => {
-    await patch(`/api/p/${project.id}/tasks/${t.id}`, { status });
-    reload();
+    if (!t.id) return;
+    setPending((p) => ({ ...p, [t.id!]: status }));
+    try {
+      await patch(`/api/p/${project.id}/tasks/${t.id}`, { status });
+      await reload();
+    } catch (e: any) {
+      toast(`Couldn't update ${t.id}: ${e.message || e}`);
+    } finally {
+      settle([t.id]);
+    }
+  };
+
+  const remove = async (t: Task) => {
+    if (!t.id) return;
+    const ids = [t.id, ...tasks.filter((x) => x.parent && isUnder(x, t.id!)).map((x) => x.id!)];
+    setPending((p) => ({ ...p, ...Object.fromEntries(ids.map((id) => [id, "deleted" as const])) }));
+    setOpen(null);
+    try {
+      const r = await del<{ deleted: string[] }>(`/api/p/${project.id}/tasks/${t.id}`);
+      await reload();
+      toast(`Deleted ${r.deleted.join(", ")}`);
+    } catch (e: any) {
+      toast(`Couldn't delete ${t.id}: ${e.message || e}`);
+    } finally {
+      settle(ids);
+    }
+  };
+  const isUnder = (x: Task, id: string) => {
+    let p = x.parent, d = 0;
+    while (p && d < 8) { if (p === id) return true; p = loaded.find((y) => y.id === p)?.parent ?? null; d++; }
+    return false;
   };
 
   const add = async () => {
@@ -125,9 +164,13 @@ function TaskBoard({ tasks, slug, focus, showDone, setShowDone, reload }: {
     const tags = Array.from(raw.matchAll(/(?:^|\s)#([\w\-/]+)/g)).map((m) => m[1]);
     const attrs = Object.fromEntries(Array.from(raw.matchAll(/(?:^|\s)@([\w-]+):(\S+)/g)).map((m) => [m[1], m[2]]));
     const clean = raw.replace(/(?:^|\s)#[\w\-/]+/g, "").replace(/(?:^|\s)@[\w-]+:\S+/g, "").trim();
-    await post(`/api/p/${project.id}/tasks`, { title: clean, plan: slug, tags, attrs });
-    setTitle("");
-    reload();
+    try {
+      await post(`/api/p/${project.id}/tasks`, { title: clean, plan: slug, tags, attrs });
+      setTitle("");
+      await reload();
+    } catch (e: any) {
+      toast(`Couldn't add the task: ${e.message || e}`);
+    }
   };
 
   return (
@@ -158,7 +201,10 @@ function TaskBoard({ tasks, slug, focus, showDone, setShowDone, reload }: {
               </span>
               <span className="muted" style={{ fontSize: 11.5 }}>{t.notes.length ? `${t.notes.length} note${t.notes.length > 1 ? "s" : ""}` : ""}</span>
             </div>
-            {open === t.id && t.id && <TaskDetail task={t} onChange={reload} setStatus={(s) => setStatus(t, s)} />}
+            {open === t.id && t.id && (
+              <TaskDetail task={t} onChange={reload} setStatus={(s) => setStatus(t, s)} onDelete={() => remove(t)}
+                subtasks={tasks.filter((x) => isUnder(x, t.id!)).length} />
+            )}
           </div>
         ))}
       </div>
@@ -171,15 +217,22 @@ function TaskBoard({ tasks, slug, focus, showDone, setShowDone, reload }: {
   );
 }
 
-function TaskDetail({ task, onChange, setStatus }: { task: Task; onChange: () => void; setStatus: (s: TaskStatus) => void }) {
-  const { project, sendToAgent } = useApp();
+function TaskDetail({ task, onChange, setStatus, onDelete, subtasks }: {
+  task: Task; onChange: () => Promise<void>; setStatus: (s: TaskStatus) => void; onDelete: () => void; subtasks: number;
+}) {
+  const { project, sendToAgent, toast } = useApp();
   const detail = useApi<any>(`/api/p/${project.id}/tasks/${task.id}`, { poll: 8000 });
   const [note, setNote] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const addNote = async () => {
     if (!note.trim()) return;
-    await patch(`/api/p/${project.id}/tasks/${task.id}`, { note });
-    setNote("");
-    onChange();
+    try {
+      await patch(`/api/p/${project.id}/tasks/${task.id}`, { note });
+      setNote("");
+      await onChange();
+    } catch (e: any) {
+      toast(`Couldn't add the note: ${e.message || e}`);
+    }
   };
   const runs = detail.data?.runs ?? [];
   const metricKeys = Array.from(new Set(runs.flatMap((r: any) => Object.keys(r.metrics)))).slice(0, 3) as string[];
@@ -197,6 +250,18 @@ function TaskDetail({ task, onChange, setStatus }: { task: Task; onChange: () =>
         {task.tags.includes("exp") || task.attrs.benchmark ? (
           <button className="btn sm" onClick={() => sendToAgent(`/dsd-run-experiment for ${task.id}${task.attrs.benchmark ? ` on benchmark ${task.attrs.benchmark}` : ""}: `)}>Run experiment</button>
         ) : null}
+        {confirmDelete ? (
+          <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+            <span className="muted" style={{ fontSize: 12 }}>
+              Delete {task.id}{subtasks ? ` and its ${subtasks} subtask${subtasks > 1 ? "s" : ""}` : ""}? To keep the history, mark it dropped instead.
+            </span>
+            <button className="btn sm danger" onClick={onDelete}>Delete</button>
+            <button className="btn sm ghost" onClick={() => setConfirmDelete(false)}>Cancel</button>
+          </span>
+        ) : (
+          <button className="btn sm ghost danger" title="Delete this task, its notes and its subtasks from the plan"
+            onClick={() => setConfirmDelete(true)}><Icon name="trash" /> Delete</button>
+        )}
       </div>
       {task.notes.length > 0 && <div className="notes">{task.notes.join("\n")}</div>}
       <div style={{ display: "flex", gap: 6 }}>

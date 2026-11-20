@@ -59,6 +59,8 @@ function Workspace({ project, projects }: { project: Project; projects: Project[
   const [activeTerm, setActiveTerm] = useState<string | null>(null);
   const [paneOpen, setPaneOpen] = useState<boolean>(() => load("dsd.pane.open", true));
   const [paneWidth, setPaneWidth] = useState<number>(() => load("dsd.pane.width", 560));
+  const [agentFull, setAgentFull] = useState<boolean>(() => load("dsd.pane.full", false));
+  const full = agentFull && paneOpen;
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [launcherOpen, setLauncherOpen] = useState(false);
   const [currentWt, setCurrentWt] = useState<string | null>(null);
@@ -82,6 +84,7 @@ function Workspace({ project, projects }: { project: Project; projects: Project[
   useEffect(() => { refreshTerms(); }, [refreshTerms]);
   useEffect(() => save("dsd.pane.open", paneOpen), [paneOpen]);
   useEffect(() => save("dsd.pane.width", paneWidth), [paneWidth]);
+  useEffect(() => save("dsd.pane.full", agentFull), [agentFull]);
   useEffect(() => { document.title = `${project.name} · dsd`; }, [project.name]);
 
   useEffect(() => {
@@ -89,6 +92,10 @@ function Workspace({ project, projects }: { project: Project; projects: Project[
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "j") {
         e.preventDefault();
         setPaneOpen((o) => !o);
+      } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "Enter") {
+        e.preventDefault();
+        setPaneOpen(true);
+        setAgentFull((f) => !f);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -198,7 +205,8 @@ function Workspace({ project, projects }: { project: Project; projects: Project[
 
   return (
     <Ctx.Provider value={ctx}>
-      <div className="app" style={{ gridTemplateColumns: `216px minmax(0,1fr) ${paneOpen ? paneWidth : 0}px` }}>
+      <div className={`app ${full ? "agent-full" : ""}`}
+        style={{ gridTemplateColumns: full ? "minmax(0,1fr)" : `216px minmax(0,1fr) ${paneOpen ? paneWidth : 0}px` }}>
         <aside className="sidebar">
           <a className="brand" {...linkProps("/")} style={{ color: "inherit", textDecoration: "none" }}><span className="logo">ds</span> dsd</a>
           <nav className="nav" style={{ paddingBottom: 6 }}>
@@ -233,8 +241,8 @@ function Workspace({ project, projects }: { project: Project; projects: Project[
           </div>
         </aside>
         <main className="main">{body}</main>
-        <section className={`agent ${paneOpen ? "" : "collapsed"}`} style={{ width: paneOpen ? paneWidth : 0 }}>
-          {paneOpen && (
+        <section className={`agent ${paneOpen ? "" : "collapsed"}`} style={{ width: full ? "auto" : paneOpen ? paneWidth : 0 }}>
+          {paneOpen && !full && (
             <div className={`resizer ${dragActive ? "active" : ""}`} onMouseDown={() => {
               dragging.current = true;
               setDragActive(true);
@@ -254,7 +262,10 @@ function Workspace({ project, projects }: { project: Project; projects: Project[
             terminalWhere={focusWorktree ?? "main checkout"}
             onClose={closeTerminal}
             onExited={() => refreshTerms()}
-            onHide={() => setPaneOpen(false)}
+            onHide={() => { setPaneOpen(false); setAgentFull(false); }}
+            full={full}
+            onToggleFull={() => setAgentFull((f) => !f)}
+            context={`${project.name}${focusWorktree ? ` · ⎇ ${focusWorktree}` : ""}`}
           />
         </section>
       </div>

@@ -137,3 +137,17 @@ def test_add_project_starts_one_outside_the_repo(env, tmp_path):
     assert p["scope"] == "apps/x" and p["name"] == "x" and p["repo"] == str(other.resolve())
     assert sorted(other.rglob("*")) == [other / "apps", other / "apps" / "x"]
     assert c.post("/api/projects", json={"path": str(other / "apps" / "x")}).json()["id"] == p["id"]
+
+
+def test_delete_task_with_subtasks(env):
+    c, p = env
+    parent = c.post(f"/api/p/{p.id}/tasks", json={"title": "Parent"}).json()
+    child = c.post(f"/api/p/{p.id}/tasks", json={"title": "Child", "parent": parent["id"]}).json()
+    keep = c.post(f"/api/p/{p.id}/tasks", json={"title": "Keep me"}).json()
+    c.patch(f"/api/p/{p.id}/tasks/{parent['id']}", json={"note": "a note"})
+    r = c.delete(f"/api/p/{p.id}/tasks/{parent['id']}")
+    assert r.status_code == 200 and r.json() == {"deleted": [parent["id"], child["id"]]}
+    ids = [t["id"] for t in c.get(f"/api/p/{p.id}/tasks").json()]
+    assert parent["id"] not in ids and child["id"] not in ids and keep["id"] in ids
+    assert "a note" not in p.main_plan_path.read_text()
+    assert c.delete(f"/api/p/{p.id}/tasks/T-404").status_code == 400

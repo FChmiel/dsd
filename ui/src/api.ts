@@ -52,20 +52,23 @@ export function useApi<T = any>(path: string | null, opts: { poll?: number } = {
   const [loading, setLoading] = useState(false);
   const pathRef = useRef(path);
   pathRef.current = path;
+  const seq = useRef(0);
 
   const load = useCallback(async () => {
     if (!path) return;
+    const mine = ++seq.current;
+    const current = () => pathRef.current === path && seq.current === mine;
     setLoading(true);
     try {
       const d = await api<T>(path);
-      if (pathRef.current === path) {
+      if (current()) {
         setData(d);
         setError(null);
       }
     } catch (e: any) {
-      if (pathRef.current === path) setError(e.message || String(e));
+      if (current()) setError(e.message || String(e));
     } finally {
-      setLoading(false);
+      if (seq.current === mine) setLoading(false);
     }
   }, [path]);
 

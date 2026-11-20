@@ -128,6 +128,13 @@ def task_update(task_id: str, status: str | None = None, note: str | None = None
 
 
 @tool
+def task_delete(task_id: str) -> str:
+    """Delete a task with its notes and subtasks. Prefer task_update(status="dropped") to keep the history;
+    delete only when the user asks."""
+    return "deleted " + ", ".join(plans.remove_task(_project(), task_id))
+
+
+@tool
 def docs_list() -> list[dict]:
     """List files in the project's docs folder (paths relative to docs/)."""
     return docs_mod.list_docs(_project())

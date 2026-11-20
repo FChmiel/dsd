@@ -141,11 +141,15 @@ export function TerminalPane(props: {
   onClose: (id: string) => void;
   onExited: (id: string) => void;
   onHide: () => void;
+  full: boolean;
+  onToggleFull: () => void;
+  context: string;
 }) {
   const { terminals, activeId, launcherOpen, setLauncherOpen } = props;
   return (
     <div className="term-pane" style={{ position: "relative" }}>
       <div className="term-tabs">
+        {props.full && <span className="term-context" title="Exit full screen to see the project">{props.context}</span>}
         {terminals.map((t) => (
           <button key={t.id} className={`term-tab ${t.id === activeId ? "active" : ""}`} onClick={() => props.onSelect(t.id)}
             title={`${t.kind === "claude" ? "Claude Code" : "Shell"} · ${t.worktree ? `worktree ${t.worktree}` : "main checkout"}${t.branch ? ` · ${t.branch}` : ""}`}>
@@ -158,6 +162,9 @@ export function TerminalPane(props: {
         <span style={{ flex: 1 }} />
         <button className="term-btn" onClick={props.onTerminal} title={`Open a shell in ${props.terminalWhere}`}>+ Terminal</button>
         <button className="term-btn" data-launcher-toggle onClick={() => setLauncherOpen(!launcherOpen)} title="New Claude or shell session (new worktree, existing worktree, or main checkout)">+ New session</button>
+        <button className="term-btn" onClick={props.onToggleFull} title={props.full ? "Exit full screen (⌘⇧↵)" : "Full screen (⌘⇧↵)"}>
+          {props.full ? "⤡ Exit full screen" : "⤢"}
+        </button>
         <button className="term-btn" onClick={props.onHide} title="Hide agent pane (⌘J)">⇥</button>
       </div>
       {launcherOpen && <SessionLauncher pid={props.pid} onStart={props.onNew} onClose={() => setLauncherOpen(false)} />}

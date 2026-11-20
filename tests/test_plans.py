@@ -195,3 +195,14 @@ def test_dsd_plan_template_takes_tasks(project):
     found = plans.find_task(project, c.id)[1]
     assert found.parent == t.id and found.tags == ["check"] and found.attrs == {"req": "R2", "benchmark": "estate"}
     assert plans.check(project) == []
+
+
+def test_cli_task_rm(project, monkeypatch):
+    monkeypatch.chdir(project.root)
+    r = CliRunner()
+    assert r.invoke(app, ["task", "add", "Throwaway"]).exit_code == 0
+    res = r.invoke(app, ["task", "rm", "T-2"])
+    assert res.exit_code == 1 and "--yes" in res.output
+    assert r.invoke(app, ["task", "rm", "T-2", "--yes"]).exit_code == 0
+    assert "Throwaway" not in project.main_plan_path.read_text()
+    assert r.invoke(app, ["task", "rm", "T-2", "--yes"]).exit_code == 1

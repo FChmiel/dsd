@@ -439,3 +439,13 @@ def set_title(plan: Plan, t: Task, title: str) -> None:
 def delete_task(plan: Plan, t: Task) -> None:
     """Remove a task and its notes/children."""
     del plan.lines[t.line:_block_end(plan, t)]
+
+
+def remove_task(project: Project, task_id: str) -> list[str]:
+    """Delete a task with its notes and subtasks from its plan; returns the ids removed."""
+    pl, t = find_task(project, task_id)
+    end = _block_end(pl, t)
+    removed = [x.id for x in pl.tasks if x.id and t.line <= x.line < end]
+    delete_task(pl, t)
+    pl.save()
+    return removed

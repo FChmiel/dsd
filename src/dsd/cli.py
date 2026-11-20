@@ -414,6 +414,18 @@ def task_reopen(task_id: str, note: str = _NOTE) -> None:
     _transition(task_id, "todo", note)
 
 
+@task_app.command("rm")
+def task_rm(task_id: str, yes: bool = typer.Option(False, "--yes", "-y")) -> None:
+    """Delete a task, with its notes and subtasks (prefer `dsd task drop` to keep the history)."""
+    p = _project()
+    pl, t = _guard(plans.find_task, p, task_id)
+    if not yes:
+        console.print(f"Would delete {_task_row(t, show_plan=True)} with its notes and subtasks. Re-run with --yes.")
+        raise typer.Exit(1)
+    removed = _guard(plans.remove_task, p, t.id)
+    console.print(f"[green]deleted[/] {', '.join(removed)}")
+
+
 @task_app.command("note")
 def task_note(task_id: str, note: str) -> None:
     """Append a note under a task."""

@@ -293,6 +293,10 @@ def create_app(current: Path | None = None) -> FastAPI:
         pl.save()
         return plans.find_task(p, t.id)[1].to_dict()
 
+    @app.delete("/api/p/{pid}/tasks/{task_id}")
+    def task_delete(pid: str, task_id: str):
+        return {"deleted": guard(plans.remove_task, get_project(pid), task_id)}
+
     # ------------------------------------------------------------ docs
     @app.get("/api/p/{pid}/docs")
     def docs_list(pid: str):
