@@ -60,6 +60,30 @@ def init(
 
 
 @app.command()
+def setup(force: bool = typer.Option(False, "--force", help="Overwrite dsd skills you have edited.")) -> None:
+    """Wire dsd into Claude Code for your user: register the dsd MCP server and install the dsd skills."""
+    from . import agents
+
+    for action, path in agents.install_skills(force=force):
+        if action != "unchanged":
+            style = "yellow" if action == "kept" else _STYLE[action]
+            hint = "  [dim](you edited it; --force to replace)[/]" if action == "kept" else ""
+            console.print(f"  [{style}]{action:9}[/] {path}{hint}")
+    try:
+        mcp = agents.register_mcp()
+    except RuntimeError as e:
+        err.print(f"[red]Could not register the MCP server: {e}[/red]")
+        raise typer.Exit(1)
+    if mcp == "missing":
+        err.print("[yellow]The claude CLI isn't on your PATH.[/] Register the MCP server yourself with:\n  "
+                  + " ".join(agents.mcp_add_command()))
+        raise typer.Exit(1)
+    if mcp == "created":
+        console.print(f"  [green]{'created':9}[/] MCP server 'dsd' (user scope)")
+    console.print("dsd is set up for Claude Code. Start a project in a repo with `dsd init`.")
+
+
+@app.command()
 def ui(
     port: int = typer.Option(8765, "--port"),
     no_open: bool = typer.Option(False, "--no-open", help="Don't open a browser."),

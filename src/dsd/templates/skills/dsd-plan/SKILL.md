@@ -1,6 +1,6 @@
 ---
 name: dsd-plan
-description: Turn the current conversation into a dsd project plan - new tasks in the central plan or a new sub-plan in docs/plans/. Use when the user says "make a plan", "add this to the plan", "turn this into tasks", or /dsd-plan.
+description: Turn the current conversation into a dsd project plan - new tasks in the central plan or a new sub-plan. Use when the user says "make a plan", "add this to the plan", "turn this into tasks", or /dsd-plan.
 ---
 
 # Turn this conversation into a plan
@@ -13,5 +13,5 @@ description: Turn the current conversation into a dsd project plan - new tasks i
    - One outcome per task, phrased as a verb ("Train XGBoost baseline on v2 features").
    - Tag experiment work `#exp` and set `@benchmark:<name>` when it'll produce comparable runs.
    - Nest sub-steps with `parent`.
-4. If the plan needs context (goal, constraints, decisions made in this chat), edit the plan's prose with `docs_write`, keeping every existing task line unchanged.
+4. If the plan needs context (goal, constraints, decisions made in this chat), edit the plan's prose: `plan_read` it, then `docs_write("plans/<slug>.md", ...)`, keeping every existing task line unchanged.
 5. Show the user the resulting plan (`dsd plan show <slug>`) and ask what to start with.

@@ -20,11 +20,20 @@ from .tracking.index import Index
 from .tracking.query import QueryError, compare, leaderboard, list_runs, load_bench_specs
 
 INSTRUCTIONS = """\
-dsd manages this project's plans, docs and experiment runs.
-- The central plan is docs/plans/main.md; sub-plans live in docs/plans/. Task ids (T-12) are unique project-wide.
-- Use task_update to change task status (todo/doing/done/blocked/dropped) instead of editing plan files by hand.
-- Experiment runs are tracked with the dsd SDK (dsd.run) or `dsd exec -- <cmd>`; query them with runs_query/bench_board.
-- Write decisions to docs/decisions/, notes to docs/notes/, HTML reports to docs/reports/.
+dsd manages plans, docs and experiment runs for the repo you are working in. Its state lives outside the repo,
+in the project's data dir (~/.dsd/projects/<id>/, shown by project_overview). Never create dsd files in the repo.
+- Start with project_overview. If there is no project for this repo, the user can start one with `dsd init`.
+- Plans: the central plan is "main"; sub-plans have their own slugs (plan_list, plan_read). Task ids (T-12) are
+  unique across all plans. Markers: [ ] todo, [/] doing, [x] done, [!] blocked, [-] dropped.
+- Change task status with task_update (or `dsd task start|done|block T-12`) rather than editing plan files by hand.
+- Docs: use docs_list, docs_search, docs_read and docs_write with paths relative to the docs folder. Decisions go
+  in decisions/, notes in notes/, HTML reports in reports/.
+- Tag experiment runs with the task they serve: dsd.run(..., task="T-12") or `dsd exec --task T-12 -- <cmd>`.
+  Query them with runs_query, run_get, runs_compare and bench_board.
+- Add a `Task: T-12` trailer to commits that implement a task.
+- You may be in a dsd git worktree (branch dsd/<name>). Commit your work on that branch; the user reviews and
+  merges it from the dsd app (`dsd wt merge`). Plans, docs and runs are shared with the main checkout.
+- Review comments the user left in the dsd app: review_comments, then review_resolve once addressed.
 """
 
 server = MCPServer(name="dsd", instructions=INSTRUCTIONS)
