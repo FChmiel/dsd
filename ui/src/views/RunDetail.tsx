@@ -18,6 +18,7 @@ export function RunDetail({ rid, tab: tabParam }: { rid: string; tab: string | n
   const stepped = Object.entries(d.series as Record<string, [number, number][]>).filter(([, pts]) => pts.length > 1);
   const htmls = d.artifact_list.filter((a: any) => /\.html?$/i.test(a.path));
 
+  const shownInfo = Object.fromEntries(Object.entries(d.info ?? {}).filter(([k]) => !["recorded", "detected_outputs", "description"].includes(k)));
   return (
     <div className="page">
       <div className="page-head">
@@ -55,7 +56,7 @@ export function RunDetail({ rid, tab: tabParam }: { rid: string; tab: string | n
             <dd className="mono">{d.git?.sha ? d.git.sha.slice(0, 10) : "no commit"} {d.git?.branch ?? ""}
               {d.git?.dirty && <a style={{ marginLeft: 6 }} onClick={() => setTab("diff")} href="#">dirty ↗</a>}</dd>
             <dt>user</dt><dd>{d.user}{d.worktree && <span className="pill" style={{ marginLeft: 8 }}>⎇ {d.worktree}</span>}</dd>
-            {d.command && <><dt>command</dt><dd className="mono" style={{ gridColumn: "span 3", fontSize: 12 }}>{d.command.join(" ")}</dd></>}
+            {d.command?.length > 0 && <><dt>command</dt><dd className="mono" style={{ gridColumn: "span 3", fontSize: 12 }}>{d.command.join(" ")}</dd></>}
             {d.error && <><dt>error</dt><dd style={{ gridColumn: "span 3", color: "var(--bad)" }} className="mono">{d.error}</dd></>}
             {d.tags.length > 0 && <><dt>tags</dt><dd style={{ gridColumn: "span 3" }}>{d.tags.map((t: string) => <span key={t} className="tag">#{t} </span>)}</dd></>}
           </dl>
@@ -72,29 +73,39 @@ export function RunDetail({ rid, tab: tabParam }: { rid: string; tab: string | n
       </div>
 
       {tab === "overview" && (
-        <div className="grid-2">
+        <div className="run-overview">
           <div className="card">
-            <div className="card-head">Metrics</div>
-            {Object.keys(d.metric_stats).length === 0 ? <div className="empty">No metrics logged</div> : (
-              <table className="data">
-                <thead><tr><th>metric</th><th className="num">last</th><th className="num">min</th><th className="num">max</th><th className="num">n</th></tr></thead>
-                <tbody>
-                  {Object.entries(d.metric_stats).sort().map(([k, s]: any) => (
-                    <tr key={k}><td className="mono">{k}</td><td className="num best">{fmtNum(s.last)}</td><td className="num">{fmtNum(s.min)}</td>
-                      <td className="num">{fmtNum(s.max)}</td><td className="num muted">{s.n}</td></tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
+            <div className="card-head">Metrics <span className="muted" style={{ fontWeight: 400 }}>{Object.keys(d.metric_stats).length || ""}</span></div>
+            {Object.keys(d.metric_stats).length === 0 ? <div className="empty">No metrics logged</div> : (() => {
+              const rows = Object.entries(d.metric_stats).sort() as [string, any][];
+              const series = rows.some(([, s]) => s.n > 1);
+              return (
+                <table className="data kv-table">
+                  <colgroup><col style={{ width: series ? "40%" : "60%" }} /></colgroup>
+                  <thead><tr><th>metric</th>{series ? <><th className="num">last</th><th className="num">min</th><th className="num">max</th><th className="num">n</th></> : <th className="num">value</th>}</tr></thead>
+                  <tbody>
+                    {rows.map(([k, s]) => (
+                      <tr key={k}>
+                        <td className="mono" title={k}>{k}</td>
+                        <td className="num best" title={String(s.last)}>{fmtNum(s.last)}</td>
+                        {series && <><td className="num">{fmtNum(s.min)}</td><td className="num">{fmtNum(s.max)}</td><td className="num muted">{s.n}</td></>}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              );
+            })()}
           </div>
           <div className="card">
-            <div className="card-head">Params</div>
+            <div className="card-head">Params <span className="muted" style={{ fontWeight: 400 }}>{Object.keys(d.params).length || ""}</span></div>
             {Object.keys(d.params).length === 0 ? <div className="empty">No params</div> : (
-              <table className="data">
+              <table className="data kv-table">
+                <colgroup><col style={{ width: "40%" }} /></colgroup>
                 <tbody>
-                  {Object.entries(d.params).sort().map(([k, v]) => (
-                    <tr key={k}><td className="mono">{k}</td><td className="num">{typeof v === "object" ? JSON.stringify(v) : fmtNum(v)}</td></tr>
-                  ))}
+                  {Object.entries(d.params).sort().map(([k, v]) => {
+                    const text = typeof v === "object" ? JSON.stringify(v) : fmtNum(v);
+                    return <tr key={k}><td className="mono" title={k}>{k}</td><td className="num mono" title={String(text)}>{text}</td></tr>;
+                  })}
                 </tbody>
               </table>
             )}
@@ -117,11 +128,11 @@ export function RunDetail({ rid, tab: tabParam }: { rid: string; tab: string | n
                 style={{ width: "100%", height: 460, border: 0, background: "white", display: "block", borderRadius: "0 0 8px 8px" }} title={htmls[0].path} />
             </div>
           )}
-          {Object.keys(d.info).length > 0 && (
+          {Object.keys(shownInfo).length > 0 && (
             <div className="card">
               <div className="card-head">Info</div>
               <div className="card-body">
-                <dl className="kv">{Object.entries(d.info).map(([k, v]) => (
+                <dl className="kv">{Object.entries(shownInfo).map(([k, v]) => (
                   <Fragment key={k}><dt className="mono">{k}</dt><dd className="mono" style={{ fontSize: 12 }}>
                     {k === "links" && v && typeof v === "object" ? (
                       <div className="stack" style={{ gap: 2 }}>{Object.entries(v as Record<string, string>).map(([label, url]) => (
