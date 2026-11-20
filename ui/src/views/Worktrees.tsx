@@ -10,6 +10,7 @@ export function Worktrees() {
   const { project, newSession, openLauncher, terminals, toast } = useApp();
   const wts = useApi<Worktree[]>(`/api/p/${project.id}/worktrees`, { poll: 5000 });
   const [panel, setPanel] = useState<Panel>(null);
+  const [adopting, setAdopting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const act = async (fn: () => Promise<any>, ok: string) => {
@@ -31,9 +32,11 @@ export function Worktrees() {
         <h1>Worktrees</h1>
         <span className="sub">one isolated checkout per agent session, on branch <code>dsd/&lt;name&gt;</code></span>
         <span className="spacer" />
+        <button className="btn" onClick={() => setAdopting((a) => !a)}>Adopt existing worktree…</button>
         <button className="btn primary" onClick={openLauncher}>+ New session</button>
       </div>
       {error && <div className="error-box" style={{ marginBottom: 12 }}>{error}</div>}
+      {adopting && <AdoptPanel pid={project.id} onAdopt={(path) => act(async () => { await post(`/api/p/${project.id}/worktrees/adopt`, { path }); setAdopting(false); }, "Worktree adopted")} onCancel={() => setAdopting(false)} />}
       {wts.data && list.length === 0 && <div className="card"><div className="empty">This project isn't a git repo.</div></div>}
       <div className="stack" style={{ gap: 10 }}>
         {list.map((w) => {
@@ -46,6 +49,11 @@ export function Worktrees() {
                 <div className="wt-title">
                   <b>{w.is_main ? "★ main checkout" : w.name}</b>
                   <span className="mono dim" style={{ fontSize: 12 }}>{w.branch ?? "(detached)"}{w.base ? <span className="muted"> ← {w.base}</span> : null}</span>
+                  {(w.origin === "adopted" || w.origin === "current") && (
+                    <span className="pill" title={w.origin === "current" ? "The worktree you started dsd from. Adopt it to keep it listed." : "Created outside dsd (e.g. by Pane). dsd won't delete it unless you remove it."}>
+                      {w.origin}
+                    </span>
+                  )}
                   {w.task && <a className="mono" style={{ fontSize: 12 }} {...linkProps(`${href(project.id, "plans")}?task=${w.task}`)}>{w.task}</a>}
                 </div>
                 <div className="wt-badges">
@@ -68,6 +76,8 @@ export function Worktrees() {
                 <button className="btn sm" onClick={() => navigate(`${href(project.id, "changes")}${w.is_main ? "" : `?worktree=${encodeURIComponent(w.name)}`}`)}>Review changes</button>
                 {!w.is_main && <>
                   <span className="spacer" />
+                  {w.origin === "current" && <button className="btn sm ghost" onClick={() => act(() => post(`/api/p/${project.id}/worktrees/adopt`, { path: w.path }), `Adopted ${w.name}`)}>Adopt</button>}
+                  {w.origin === "adopted" && <button className="btn sm ghost" title="Stop listing it; the directory and branch stay" onClick={() => act(() => post(`/api/p/${project.id}/worktrees/${w.name}/hide`, {}), `Hid ${w.name}`)}>Hide</button>}
                   <button className="btn sm ghost" disabled={!w.dirty} onClick={() => setPanel(open?.kind === "commit" ? null : { name: w.name, kind: "commit" })}>Commit…</button>
                   <button className="btn sm ghost" disabled={!w.ahead} title={w.ahead ? "" : "No commits to merge yet"}
                     onClick={() => setPanel(open?.kind === "merge" ? null : { name: w.name, kind: "merge" })}>Merge…</button>
@@ -89,6 +99,27 @@ export function Worktrees() {
         Experiment runs from any worktree land in this project's shared run history (tagged with the worktree), so leaderboards compare across branches.
         Configure a setup step and extra files to copy in <code>{tildify(project.data_dir)}/project.toml</code>: <code>[worktree] setup = "uv sync"</code>, <code>copy = [".env"]</code>.
       </p>
+    </div>
+  );
+}
+
+function AdoptPanel({ pid, onAdopt, onCancel }: { pid: string; onAdopt: (path: string) => void; onCancel: () => void }) {
+  const cands = useApi<{ name: string; path: string; branch: string | null }[]>(`/api/p/${pid}/worktrees/candidates`);
+  return (
+    <div className="card" style={{ marginBottom: 12 }}>
+      <div className="card-head">Other worktrees of this repo <span className="spacer" /><button className="btn sm ghost" onClick={onCancel}>Close</button></div>
+      <div className="card-body stack" style={{ gap: 6 }}>
+        {cands.data && cands.data.length === 0 && <div className="muted">No other worktrees.</div>}
+        {cands.data?.map((c) => (
+          <div key={c.path} style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <b style={{ minWidth: 140 }}>{c.name}</b>
+            <span className="mono dim" style={{ fontSize: 12 }}>{c.branch ?? "(detached)"}</span>
+            <span className="mono muted" style={{ fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={c.path}>{tildify(c.path)}</span>
+            <span className="spacer" />
+            <button className="btn sm" onClick={() => onAdopt(c.path)}>Adopt</button>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -125,7 +156,7 @@ function RemovePanel({ w, onRemove, onCancel }: { w: Worktree; onRemove: (force:
   const [force, setForce] = useState(false);
   return (
     <div className="wt-panel">
-      <span>Remove worktree <b>{w.name}</b>? Its terminals will close.</span>
+      <span>Remove worktree <b>{w.name}</b>? Its terminals will close.{w.origin !== "dsd" ? " dsd didn't create it; use Hide to just stop listing it." : ""}</span>
       {w.dirty ? (
         <label className="dim" style={{ display: "flex", gap: 5, alignItems: "center" }}>
           <input type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} />

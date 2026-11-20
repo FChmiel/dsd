@@ -4,6 +4,9 @@ Each Claude session can get its own worktree + branch (dsd/<name>) so agents nev
 other's working copies. Worktrees live under ~/.dsd/worktrees/<project>/<name>; metadata (base
 branch, linked task) is kept in the project's data dir (worktrees.json).
 
+Like Pane, dsd only lists the worktrees it owns: ones it created and ones you adopted, plus the
+worktree you are working in. Other worktrees of the repo are offered as adoption candidates.
+
 Shared state stays central: a run started inside a worktree is stored in the project's data dir,
 tagged with the worktree and branch.
 """
@@ -16,10 +19,11 @@ import re
 import shutil
 import subprocess
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
-from .project import Project, dsd_home
+from .project import Project, checkout_of, dsd_home
 
 BRANCH_PREFIX = "dsd/"
 DEFAULT_COPY = [".env", ".env.local"]
@@ -120,8 +124,9 @@ def is_bootstrap(rel: str, copied: list[str]) -> bool:
     return any(rel == c or rel.startswith(c.rstrip("/") + "/") for c in copied)
 
 
-def _status(path: Path, base: str | None, copied: list[str] | None = None) -> dict:
-    st = [ln for ln in _git(path, "status", "--porcelain", check=False).out.splitlines()
+def _status(path: Path, base: str | None, copied: list[str] | None = None, scope: str | None = None) -> dict:
+    spec = ["--", scope] if scope else []
+    st = [ln for ln in _git(path, "status", "--porcelain", *spec, check=False).out.splitlines()
           if not is_bootstrap(ln[3:].split(" -> ")[-1], copied or [])]
     info: dict = {"dirty": len(st), "ahead": None, "behind": None, "last_commit": None}
     if base:
@@ -136,35 +141,87 @@ def _status(path: Path, base: str | None, copied: list[str] | None = None) -> di
     return info
 
 
-def list_worktrees(project: Project, with_status: bool = True) -> list[dict]:
-    """The main checkout first, then linked worktrees (dsd-created ones carry base/task metadata)."""
+def _entries(project: Project, include: list[Path] | None = None, everything: bool = False) -> list[dict]:
     main = _main(project).resolve()
     meta = _load_meta(project)
     by_path = {v["path"]: (k, v) for k, v in meta.items()}
+    current = {str(c) for c in (checkout_of(Path(p).resolve()) for p in include or []) if c}
     out = []
     for item in _porcelain(project):
         path = Path(item["path"])
-        is_main = path == main
         name, m = by_path.get(str(path), (None, {}))
-        if is_main:
-            name = "main"
-        name = name or path.name
-        entry = {
-            "name": name, "path": str(path), "is_main": is_main, "branch": item.get("branch"),
-            "head": item.get("head"), "detached": item.get("detached", False), "managed": bool(m),
-            "base": m.get("base"), "task": m.get("task"), "created": m.get("created"), "copied": m.get("copied", []),
-            "exists": path.is_dir(), "prunable": item.get("prunable", False),
-        }
-        if with_status and entry["exists"]:
-            entry.update(_status(path, None if is_main else entry["base"], entry["copied"]))
-        out.append(entry)
+        if path == main:
+            name, origin = "main", "main"
+        elif m:
+            origin = m.get("origin", "dsd")
+        elif str(path) in current:
+            origin = "current"
+        elif everything:
+            origin = None
+        else:
+            continue
+        out.append({
+            "name": name or path.name, "path": str(path), "is_main": path == main, "origin": origin,
+            "branch": item.get("branch"), "head": item.get("head"), "detached": item.get("detached", False),
+            "managed": bool(m), "base": m.get("base"), "task": m.get("task"), "created": m.get("created"),
+            "copied": m.get("copied", []), "exists": path.is_dir(), "prunable": item.get("prunable", False),
+        })
     out.sort(key=lambda e: (not e["is_main"], -(e["created"] or 0)))
     return out
 
 
+def list_worktrees(project: Project, with_status: bool = True, include: list[Path] | None = None) -> list[dict]:
+    """The main checkout first, then the worktrees dsd owns (created or adopted) and any in `include`."""
+    out = _entries(project, include)
+    if with_status:
+        live = [e for e in out if e["exists"]]
+
+        def status(e: dict) -> dict:
+            return _status(Path(e["path"]), None if e["is_main"] else e["base"], e["copied"], project.scope)
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            for e, st in zip(live, pool.map(status, live)):
+                e.update(st)
+    return out
+
+
+def candidates(project: Project) -> list[dict]:
+    """Worktrees of the repo that dsd doesn't list yet (no status: cheap even with many worktrees)."""
+    keep = ("name", "path", "branch", "head", "detached", "exists")
+    return [{k: e[k] for k in keep} for e in _entries(project, everything=True) if e["origin"] is None]
+
+
+def adopt_worktree(project: Project, path: str, task: str | None = None) -> dict:
+    target = Path(path).expanduser().resolve()
+    cand = next((c for c in candidates(project) if Path(c["path"]) == target), None)
+    if cand is None:
+        raise WorktreeError(f"{target} is not a worktree of {project.repo} that dsd can adopt")
+    meta = _load_meta(project)
+    base_name = slugify(target.name, 40)
+    name, n = base_name, 1
+    while name in meta or name == "main":
+        n += 1
+        name = f"{base_name}-{n}"
+    meta[name] = {"path": str(target), "branch": cand["branch"], "base": current_branch(_main(project)),
+                  "task": task, "created": time.time(), "copied": [], "origin": "adopted"}
+    _save_meta(project, meta)
+    return get_worktree(project, name)
+
+
+def hide_worktree(project: Project, name: str) -> dict:
+    """Stop listing a worktree. Its directory and branch are left alone."""
+    wt = get_worktree(project, name)
+    meta = _load_meta(project)
+    if wt["is_main"] or wt["name"] not in meta:
+        raise WorktreeError(f"'{wt['name']}' isn't in dsd's worktree list")
+    meta.pop(wt["name"])
+    _save_meta(project, meta)
+    return {"hidden": wt["name"]}
+
+
 def get_worktree(project: Project, name: str | None) -> dict:
-    """Resolve 'main'/None or a worktree name (or branch) to its entry."""
-    wts = list_worktrees(project, with_status=False)
+    """Resolve 'main'/None or a worktree name (or branch) to its entry; any worktree of the repo resolves."""
+    wts = _entries(project, everything=True)
     if not name or name == "main":
         return wts[0]
     for w in wts:
@@ -217,7 +274,7 @@ def create_worktree(project: Project, name: str | None = None, base: str | None 
     _git(main, "worktree", "add", "-b", branch, str(path), base)
     copied = _bootstrap(project, main, path)
     meta[name] = {"path": str(path.resolve()), "branch": branch, "base": base, "task": task,
-                  "created": time.time(), "copied": copied}
+                  "created": time.time(), "copied": copied, "origin": "dsd"}
     _save_meta(project, meta)
     return get_worktree(project, name) | {"copied": copied}
 

@@ -26,7 +26,7 @@ from .terminals import TerminalManager
 DIST = Path(__file__).parent / "dist"
 
 
-def create_app() -> FastAPI:
+def create_app(current: Path | None = None) -> FastAPI:
     terms = TerminalManager()
 
     @contextlib.asynccontextmanager
@@ -53,6 +53,9 @@ def create_app() -> FastAPI:
             raise HTTPException(400, str(e))
         except (KeyError, FileNotFoundError) as e:
             raise HTTPException(404, str(e.args[0] if e.args else e))
+
+    def include(p: Project) -> list[Path]:
+        return [current] if current else []
 
     def index(p: Project) -> Index:
         idx = Index(p)
@@ -152,9 +155,10 @@ def create_app() -> FastAPI:
             "blocked": [t.to_dict() for pl in all_plans for t in pl.tasks if t.status == "blocked"],
             "benchmarks": benches,
             "recent_runs": recent,
-            "changes": len(review.working_changes(p)["files"]),
+            "changes": review.change_count(p) if review.is_repo(p.root) else 0,
             "open_comments": sum(1 for c in review.load_comments(p) if c["status"] == "open"),
-            "worktrees": max(0, len(worktrees.list_worktrees(p, with_status=False)) - 1) if review.is_repo(p.root) else 0,
+            "worktrees": max(0, len(worktrees.list_worktrees(p, with_status=False, include=include(p))) - 1)
+            if review.is_repo(p.root) else 0,
         }
 
     # ------------------------------------------------------------ plans & tasks
@@ -400,7 +404,7 @@ def create_app() -> FastAPI:
         p = get_project(pid)
         if not review.is_repo(p.root):
             return []
-        wts = worktrees.list_worktrees(p)
+        wts = worktrees.list_worktrees(p, include=include(p))
         open_terms = terms.list(pid)
         for w in wts:
             w["terminals"] = [t["id"] for t in open_terms if (t["worktree"] or "main") == w["name"]]
@@ -412,6 +416,22 @@ def create_app() -> FastAPI:
         if not review.is_repo(p.root):
             return {"current": None, "branches": []}
         return {"current": worktrees.current_branch(p.root), "branches": worktrees.branches(p)}
+
+    @app.get("/api/p/{pid}/worktrees/candidates")
+    def worktrees_candidates(pid: str):
+        p = get_project(pid)
+        if not review.is_repo(p.root):
+            return []
+        listed = {w["path"] for w in worktrees.list_worktrees(p, with_status=False, include=include(p))}
+        return [c for c in worktrees.candidates(p) if c["path"] not in listed]
+
+    @app.post("/api/p/{pid}/worktrees/adopt")
+    def worktrees_adopt(pid: str, path: str = Body(...), task: str | None = Body(None)):
+        return guard(worktrees.adopt_worktree, get_project(pid), path, task or None)
+
+    @app.post("/api/p/{pid}/worktrees/{name}/hide")
+    def worktrees_hide(pid: str, name: str):
+        return guard(worktrees.hide_worktree, get_project(pid), name)
 
     @app.post("/api/p/{pid}/worktrees")
     def worktrees_create(pid: str, name: str | None = Body(None), base: str | None = Body(None),
