@@ -40,6 +40,13 @@ function Board({ name, onSpec }: { name: string; onSpec: () => void }) {
   const { project, sendToAgent } = useApp();
   const [groupBy, setGroupBy] = useState<string>("");
   const [allStatus, setAllStatus] = useState(false);
+  const [order, setOrderState] = useState<"created" | "rank">(() => {
+    try { return localStorage.getItem("dsd.bench.order") === "rank" ? "rank" : "created"; } catch { return "created"; }
+  });
+  const setOrder = (o: "created" | "rank") => {
+    setOrderState(o);
+    try { localStorage.setItem("dsd.bench.order", o); } catch { /* ignore */ }
+  };
   const board = useApi<any>(`/api/p/${project.id}/benchmarks/${encodeURIComponent(name)}${qs({ group_by: groupBy, all_status: allStatus || undefined })}`, { poll: 8000 });
   const flat = useApi<any>(`/api/p/${project.id}/benchmarks/${encodeURIComponent(name)}${qs({ all_status: true })}`);
   const b = board.data;
@@ -61,6 +68,10 @@ function Board({ name, onSpec }: { name: string; onSpec: () => void }) {
   const primary = b.spec.primary as string | undefined;
   const dir = (b.spec.direction as string) ?? "max";
   const keys: string[] = b.metrics.slice(0, 8);
+  const byRank = order === "rank" && !!primary;
+  const rows: any[] = b.grouped || byRank ? b.rows
+    : [...b.rows].sort((x: any, y: any) => (Date.parse(y.run.created_at ?? "") || 0) - (Date.parse(x.run.created_at ?? "") || 0));
+  const orderTitle = (target: "rank" | "created") => (target === "rank" ? "Sort by rank" : "Sort newest first");
 
   return (
     <div className="stack">
@@ -95,7 +106,9 @@ function Board({ name, onSpec }: { name: string; onSpec: () => void }) {
             <table className="data">
               <thead>
                 <tr>
-                  <th className="num" style={{ width: 36 }}>#</th>
+                  <th className={`num ${!b.grouped && primary ? "sortable" : ""}`} style={{ width: 36 }}
+                    title={!b.grouped && primary ? orderTitle("rank") : undefined}
+                    onClick={() => !b.grouped && primary && setOrder("rank")}>#{byRank && !b.grouped ? " ↓" : ""}</th>
                   <th>{b.grouped ? b.group_by : "run"}</th>
                   {b.grouped && <th className="num">n</th>}
                   {!b.grouped && <th>task</th>}
@@ -104,7 +117,7 @@ function Board({ name, onSpec }: { name: string; onSpec: () => void }) {
                       {k}{k === primary ? (dir === "max" ? " ↑" : " ↓") : ""}
                     </th>
                   ))}
-                  {!b.grouped && <th className="right">created</th>}
+                  {!b.grouped && <th className="right sortable" title={orderTitle("created")} onClick={() => setOrder("created")}>created{!byRank ? " ↓" : ""}</th>}
                 </tr>
               </thead>
               <tbody>
@@ -122,7 +135,7 @@ function Board({ name, onSpec }: { name: string; onSpec: () => void }) {
                       );
                     })}
                   </tr>
-                )) : b.rows.map((row: any) => (
+                )) : rows.map((row: any) => (
                   <tr key={row.run.id} className="clickable" onClick={() => navigate(href(project.id, "runs", row.run.id))}>
                     <td className="num muted">{row.rank ?? ""}</td>
                     <td><b>{row.run.name}</b> <span className="id">{shortId(row.run.id)}</span></td>
