@@ -30,3 +30,4 @@ ui/node_modules/
 /CLAUDE.md
 /docs/*
 !/docs/distribution.md
+!/docs/images/
