@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import re
 import shutil
 import subprocess
 import sys
@@ -92,6 +94,42 @@ def dsd_executable() -> str:
     return shutil.which("dsd") or "dsd"
 
 
+def _version_key(path: Path) -> tuple:
+    m = re.search(r"claude-code-(\d+(?:\.\d+)*)", str(path))
+    return tuple(int(x) for x in m.group(1).split(".")) if m else ()
+
+
+def installed_claude() -> Path | None:
+    """`claude` in a common install location, else the newest binary bundled with the VS Code extension."""
+    home = Path.home()
+    candidates = [home / ".claude/local/claude", home / ".local/bin/claude", Path("/opt/homebrew/bin/claude"),
+                  Path("/usr/local/bin/claude")]
+    for ext_dir in (home / ".vscode/extensions", home / ".cursor/extensions", home / ".windsurf/extensions"):
+        bins = sorted(ext_dir.glob("anthropic.claude-code-*/resources/native-binary/claude"), key=_version_key, reverse=True)
+        candidates += bins
+    return next((c for c in candidates if c.is_file() and os.access(c, os.X_OK)), None)
+
+
+def login_shell_claude() -> str | None:
+    """What `command -v claude` prints in the user's login shell, which an app opened from Finder doesn't inherit."""
+    shell = os.environ.get("SHELL", "/bin/zsh")
+    try:
+        out = subprocess.run([shell, "-l", "-i", "-c", "command -v claude"], capture_output=True, text=True,
+                             timeout=8, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return out.stdout.strip().splitlines()[-1] if out.returncode == 0 and out.stdout.strip() else None
+
+
+def claude_executable() -> str | None:
+    """Path of the claude CLI: on PATH, in a common install location, or on the login-shell PATH."""
+    found = shutil.which("claude") or installed_claude()
+    if found:
+        return str(found)
+    found = login_shell_claude()
+    return found if found and found.startswith("/") else None
+
+
 def mcp_command() -> list[str]:
     return [dsd_executable(), "mcp"]
 
@@ -116,7 +154,7 @@ def mcp_status() -> dict:
         exe = command[0]
         runnable = Path(exe).exists() if "/" in exe else shutil.which(exe) is not None
         state = "connected" if command == expected and runnable else "stale"
-    return {"state": state, "command": command, "expected": expected, "claude_cli": shutil.which("claude") is not None}
+    return {"state": state, "command": command, "expected": expected, "claude_cli": claude_executable() is not None}
 
 
 def mcp_add_command() -> list[str]:
@@ -128,7 +166,7 @@ def register_mcp() -> str:
     status = mcp_status()
     if status["state"] == "connected":
         return "unchanged"
-    claude = shutil.which("claude")
+    claude = claude_executable()
     if claude is None:
         return "missing"
     if status["state"] == "stale":

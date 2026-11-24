@@ -107,11 +107,27 @@ def test_skills_refresh_only_for_users_who_installed_them(home):
 
 def test_setup_without_claude_cli(home, monkeypatch):
     monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    monkeypatch.setattr(agents, "installed_claude", lambda: None)
+    monkeypatch.setattr(agents, "login_shell_claude", lambda: None)
     r = CliRunner().invoke(app, ["setup"])
     assert r.exit_code == 1
     assert " ".join(["claude", ADD]) in r.output
     assert (home / ".claude/skills/dsd-plan/SKILL.md").is_file()
 
+
+
+def test_setup_finds_claude_outside_path(home, monkeypatch):
+    claude = home / ".local/bin/claude"
+    claude.parent.mkdir(parents=True)
+    claude.write_text(FAKE_CLAUDE)
+    claude.chmod(claude.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    monkeypatch.setattr(agents, "login_shell_claude", lambda: None)
+    r = CliRunner().invoke(app, ["setup"])
+    assert r.exit_code == 0, r.output
+    assert calls(home) == [ADD]
+    status = agents.mcp_status()
+    assert status["state"] == "connected" and status["claude_cli"]
 
 def test_setup_installs_whole_skill_folders(home):
     assert CliRunner().invoke(app, ["setup"]).exit_code == 0
