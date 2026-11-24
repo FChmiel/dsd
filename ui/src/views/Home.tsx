@@ -4,6 +4,7 @@ import { href, linkProps, navigate } from "../router";
 import { Icon } from "../components/Icon";
 import { CliCard } from "../components/CliCard";
 import { ClaudeCard } from "../components/ClaudeCard";
+import { UsageCard } from "../components/UsageCard";
 import { inApp, pickFolder } from "../native";
 
 interface Todo {
@@ -89,6 +90,7 @@ export function HomePage({ projects, reloadProjects }: { projects: Project[]; re
               </div>
             </div>
           )}
+          <UsageCard />
           {d && d.projects.length > 0 && (
             <>
               <div className="section-label" style={{ padding: "22px 0 8px" }}>Projects</div>
