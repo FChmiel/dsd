@@ -1,11 +1,13 @@
 {
   "name": "dsd-ui",
   "private": true,
+  "license": "MIT",
   "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "notices": "node scripts/third-party-notices.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

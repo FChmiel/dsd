@@ -178,3 +178,7 @@ Release and signing guide: [docs/distribution.md](docs/distribution.md)
 - **SageMaker/S3 import:** the run-bundle format and the `backend` / `external_id` fields are in place for it.
 - **Chat transcript distillation from files** (`~/.claude/projects/*.jsonl`): today the `/dsd-distill` skill works on the live conversation instead.
 - **Marimo pane**, and git/S3 backup targets.
+
+## License
+
+MIT, see [LICENSE](LICENSE). The web UI bundles open-source packages and fonts under their own licences, listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

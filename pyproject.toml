@@ -3,6 +3,8 @@ name = "dsd"
 version = "0.1.0"
 description = "Agentic development platform for data scientists: plans, docs and experiment tracking."
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
 requires-python = ">=3.11"
 dependencies = [
     "typer>=0.12",
