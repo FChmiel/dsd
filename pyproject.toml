@@ -1,11 +1,21 @@
 [project]
 name = "dsd"
 version = "0.1.0"
-description = "Agentic development platform for data scientists: plans, docs and experiment tracking."
+description = "A workspace for agent–data science collaboration: plans, experiment tracking, benchmarks, docs and whiteboards."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
 requires-python = ">=3.11"
+authors = [{ name = "Francis Chmiel" }]
+keywords = ["data-science", "experiment-tracking", "claude-code", "mcp", "agents", "mlops"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
     "typer>=0.12",
     "rich>=13",
@@ -16,6 +26,10 @@ dependencies = [
     "uvicorn>=0.30",
     "websockets>=13",
 ]
+
+[project.urls]
+Homepage = "https://github.com/FChmiel/dsd"
+Issues = "https://github.com/FChmiel/dsd/issues"
 
 [project.scripts]
 dsd = "dsd.cli:app"
@@ -35,6 +49,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/dsd"]
+artifacts = ["src/dsd/web/dist"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

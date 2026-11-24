@@ -129,6 +129,21 @@ dsd exec -b churn-v1 --task T-5 -- python train.py --model logreg --lr 0.3 --see
 """
 
 
+PIPELINE = """flowchart LR
+  raw[(Churn extract)] --> split[Train / test split]
+  split --> feats[Features]
+  subgraph models[Models on churn-v1]
+    nb[Naive Bayes]
+    lr[Logistic regression]
+    lrx[Logreg + interactions]
+  end
+  feats --> nb & lr & lrx
+  nb & lr & lrx --> board{AUC >= 0.80?}
+  board -- yes --> ship[Retention offers]
+  board -- no --> feats
+"""
+
+
 def sh(*args, cwd, check=True, quiet=True):
     return subprocess.run(list(args), cwd=cwd, check=check, capture_output=quiet, text=True)
 
@@ -193,6 +208,10 @@ def main() -> None:
     from dsd import review
 
     review.add_comment(p, "train.py", None, "Early stopping is parsed but never used. Wire --patience into train_logreg on val_auc.")
+
+    from dsd import whiteboards
+
+    whiteboards.queue_drawing(p, "Training pipeline", mermaid=PIPELINE)
     print(f"\nDemo project ready: {target}")
 
 
