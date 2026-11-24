@@ -145,6 +145,12 @@ def create_app(current: Path | None = None) -> FastAPI:
             by_project.setdefault(t["project_id"], []).append(t)
         return await asyncio.to_thread(home.dashboard, by_project)
 
+    @app.get("/api/usage")
+    async def claude_usage_api(days: int = 182, recent: int = 30):
+        from ..usage import claude_usage
+
+        return await asyncio.to_thread(claude_usage, days, recent)
+
     @app.get("/api/todos")
     def todos_list():
         from .. import home
