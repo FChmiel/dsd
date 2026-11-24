@@ -11,7 +11,6 @@ import asyncio
 import fcntl
 import os
 import pty
-import re
 import shlex
 import signal
 import struct
@@ -19,7 +18,6 @@ import subprocess
 import termios
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
 
 from ..ids import ulid
 
@@ -29,11 +27,6 @@ LOW_WATER = 250_000
 MAX_FRAME = 256 * 1024
 FRAME_DELAY = 0.006
 _claude_cmd: str | None = None
-
-
-def _version_key(path: Path) -> tuple:
-    m = re.search(r"claude-code-(\d+(?:\.\d+)*)", str(path))
-    return tuple(int(x) for x in m.group(1).split(".")) if m else ()
 
 
 CLAUDE_SESSION_MARKERS = (
@@ -63,26 +56,15 @@ def resolve_claude_command() -> str:
         return os.environ["DSD_CLAUDE_CMD"]
     if _claude_cmd is not None:
         return _claude_cmd
-    shell = os.environ.get("SHELL", "/bin/zsh")
-    try:
-        out = subprocess.run([shell, "-l", "-i", "-c", "command -v claude"], capture_output=True, text=True,
-                             timeout=8, stdin=subprocess.DEVNULL)
-        found = out.stdout.strip().splitlines()[-1] if out.returncode == 0 and out.stdout.strip() else ""
-    except (OSError, subprocess.TimeoutExpired):
-        found = ""
-    if found:
+    from ..agents import installed_claude, login_shell_claude
+
+    if login_shell_claude():
         _claude_cmd = "claude"
         return _claude_cmd
-    home = Path.home()
-    candidates = [home / ".claude/local/claude", home / ".local/bin/claude", Path("/opt/homebrew/bin/claude"),
-                  Path("/usr/local/bin/claude")]
-    for ext_dir in (home / ".vscode/extensions", home / ".cursor/extensions", home / ".windsurf/extensions"):
-        bins = sorted(ext_dir.glob("anthropic.claude-code-*/resources/native-binary/claude"), key=_version_key, reverse=True)
-        candidates += bins
-    for c in candidates:
-        if c.is_file() and os.access(c, os.X_OK):
-            _claude_cmd = shlex.quote(str(c))
-            return _claude_cmd
+    installed = installed_claude()
+    if installed:
+        _claude_cmd = shlex.quote(str(installed))
+        return _claude_cmd
     _claude_cmd = ("echo 'dsd: Claude Code CLI not found. Install it (npm i -g @anthropic-ai/claude-code)"
                    " or set DSD_CLAUDE_CMD.'")
     return _claude_cmd
