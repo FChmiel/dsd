@@ -1,0 +1,44 @@
+# Update the Homebrew cask when a release is published (not for drafts or prereleases).
+# Needs the tap repo <owner>/homebrew-dsd and the secret TAP_TOKEN (contents: write on it).
+# Without TAP_TOKEN it prints the cask, to copy into the tap by hand.
+name: homebrew
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag, e.g. v0.1.0
+        required: true
+
+jobs:
+  cask:
+    if: github.event_name == 'workflow_dispatch' || !github.event.release.prerelease
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag || github.event.release.tag_name }}
+      GH_TOKEN: ${{ github.token }}
+      TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fill in the cask
+        run: |
+          VERSION="${TAG#v}"
+          gh release download "$TAG" --pattern "dsd_${VERSION}_aarch64.dmg" --dir dl
+          SHA=$(sha256sum dl/*.dmg | cut -d' ' -f1)
+          sed -e "s|^  version \".*\"|  version \"${VERSION}\"|" -e "s|^  sha256 \".*\"|  sha256 \"${SHA}\"|" \
+            packaging/homebrew/Casks/dsd.rb > dsd.rb
+          cat dsd.rb
+
+      - name: Push to the tap
+        if: env.TAP_TOKEN != ''
+        run: |
+          OWNER="${GITHUB_REPOSITORY_OWNER}"
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/${OWNER}/homebrew-dsd.git" tap
+          mkdir -p tap/Casks && cp dsd.rb tap/Casks/dsd.rb
+          cd tap
+          git add Casks/dsd.rb
+          git -c user.name="dsd release bot" -c user.email="actions@github.com" commit -m "dsd ${TAG#v}" || exit 0
+          git push

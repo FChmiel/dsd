@@ -1,6 +1,6 @@
 [project]
 name = "dsd"
-version = "0.1.0"
+dynamic = ["version"]
 description = "A workspace for agent–data science collaboration: plans, experiment tracking, benchmarks, docs and whiteboards."
 readme = "README.md"
 license = "MIT"
@@ -47,8 +47,14 @@ packaging = [
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.version]
+path = "src/dsd/__init__.py"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/dsd"]
+artifacts = ["src/dsd/web/dist"]
+
+[tool.hatch.build.targets.sdist]
 artifacts = ["src/dsd/web/dist"]
 
 [tool.pytest.ini_options]

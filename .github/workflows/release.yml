@@ -1,11 +1,11 @@
-# Build the Apple Silicon DMG on a version tag, publish a GitHub Release, and bump the Homebrew cask.
+# Build a release. See docs/distribution.md.
 #
-#   git tag v0.1.0 && git push origin v0.1.0
+#   Tag push (v0.2.0): builds the Apple Silicon DMG and the Python wheel and sdist, then makes a DRAFT
+#   GitHub Release with notes from CHANGELOG.md. Publishing the draft runs homebrew.yml.
+#   Manual run (Actions -> release -> Run workflow, any branch): builds only, as downloadable artifacts.
 #
-# Secrets:
-#   TAP_TOKEN  (optional) fine-grained PAT with contents:write on OWNER/homebrew-dsd, to update the cask
-#   Signing/notarization (optional, add later): APPLE_CERTIFICATE (base64 .p12), APPLE_CERTIFICATE_PASSWORD,
-#   APPLE_SIGNING_IDENTITY, APPLE_API_KEY, APPLE_API_ISSUER, APPLE_API_KEY_P8 (contents of the .p8 key)
+# Optional secrets for signing and notarizing: APPLE_CERTIFICATE (base64 .p12), APPLE_CERTIFICATE_PASSWORD,
+# APPLE_SIGNING_IDENTITY, APPLE_API_KEY, APPLE_API_ISSUER, APPLE_API_KEY_P8 (contents of the .p8 key).
 name: release
 
 on:
@@ -17,28 +17,21 @@ permissions:
   contents: write
 
 jobs:
-  macos:
-    runs-on: macos-14   # Apple Silicon runner
+  build:
+    runs-on: macos-latest
     env:
       HAS_CERT: ${{ secrets.APPLE_CERTIFICATE != '' }}
-      HAS_TAP: ${{ secrets.TAP_TOKEN != '' }}
+      IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-
       - uses: astral-sh/setup-uv@v5
-
       - uses: dtolnay/rust-toolchain@stable
 
-      - name: Check versions match the tag
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          TAG="${GITHUB_REF_NAME#v}"
-          grep -q "^version = \"$TAG\"" pyproject.toml || { echo "pyproject.toml version != $TAG"; exit 1; }
-          grep -q "\"version\": \"$TAG\"" app/src-tauri/tauri.conf.json || { echo "tauri.conf.json version != $TAG"; exit 1; }
+      - name: Check versions and changelog
+        run: uv run --no-project python scripts/release.py --check ${{ env.IS_TAG == 'true' && github.ref_name || '' }}
 
       - name: Import signing certificate
         if: env.HAS_CERT == 'true'
@@ -54,7 +47,7 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -s -k ci build.keychain
           rm cert.p12
 
-      - name: Build app + DMG
+      - name: Build app and DMG
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
@@ -67,29 +60,54 @@ jobs:
           fi
           packaging/build-macos.sh
 
-      - name: Publish release
-        id: publish
+      - name: Build wheel and sdist
+        run: uv build --out-dir pydist
+
+      - name: Smoke test
+        run: |
+          uv venv /tmp/wheel-env
+          uv pip install --python /tmp/wheel-env/bin/python pydist/*.whl
+          /tmp/wheel-env/bin/dsd version
+          unzip -l pydist/*.whl > wheel-files.txt
+          grep "dsd/web/dist/index.html" wheel-files.txt
+          hdiutil attach -nobrowse -mountpoint /tmp/dsd-dmg app/src-tauri/target/release/bundle/dmg/*.dmg
+          /tmp/dsd-dmg/dsd.app/Contents/Resources/backend/dsd/dsd version
+          hdiutil detach /tmp/dsd-dmg
+
+      - name: Collect files
+        run: |
+          mkdir -p out
+          cp app/src-tauri/target/release/bundle/dmg/*.dmg pydist/* out/
+          (cd out && shasum -a 256 * | tee SHA256SUMS)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dsd-${{ github.ref_name }}
+          path: out/
+
+      - name: Draft the GitHub Release
+        if: env.IS_TAG == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          DMG=$(ls app/src-tauri/target/release/bundle/dmg/*.dmg)
-          SHA=$(shasum -a 256 "$DMG" | cut -d' ' -f1)
-          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
-          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-          gh release create "$GITHUB_REF_NAME" "$DMG" --generate-notes --title "dsd $GITHUB_REF_NAME" \
-            --notes "Install: \`brew install --cask ${GITHUB_REPOSITORY_OWNER}/dsd/dsd\` (Apple Silicon). SHA-256: \`$SHA\`" \
-            || gh release upload "$GITHUB_REF_NAME" "$DMG" --clobber
-
-      - name: Bump Homebrew cask
-        if: env.HAS_TAP == 'true'
-        env:
-          TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
-          VERSION: ${{ steps.publish.outputs.version }}
-          SHA: ${{ steps.publish.outputs.sha256 }}
-        run: |
-          git clone "https://x-access-token:${TAP_TOKEN}@github.com/${GITHUB_REPOSITORY_OWNER}/homebrew-dsd.git" tap
-          mkdir -p tap/Casks
-          sed -e "s|OWNER/REPO|${GITHUB_REPOSITORY}|g" packaging/homebrew/Casks/dsd.rb > tap/Casks/dsd.rb
-          sed -i '' -e "s|^  version \".*\"|  version \"${VERSION}\"|" -e "s|^  sha256 \".*\"|  sha256 \"${SHA}\"|" tap/Casks/dsd.rb
-          cd tap
-          git -c user.name="dsd release bot" -c user.email="actions@github.com" commit -am "dsd ${VERSION}" && git push
+          VERSION="${GITHUB_REF_NAME#v}"
+          OWNER=$(echo "$GITHUB_REPOSITORY_OWNER" | tr "[:upper:]" "[:lower:]")
+          {
+            uv run --no-project python scripts/release.py --notes "$VERSION"
+            echo
+            echo "## Install"
+            echo
+            echo '```sh'
+            echo "brew install --cask ${OWNER}/dsd/dsd    # Apple Silicon Macs"
+            echo '```'
+            echo
+            echo "Or download the DMG below. The Python wheel installs the \`dsd\` command anywhere: \`uv tool install <wheel URL>\`."
+            echo
+            echo "SHA-256:"
+            echo '```'
+            cat out/SHA256SUMS
+            echo '```'
+          } > notes.md
+          gh release create "$GITHUB_REF_NAME" out/* --draft --verify-tag \
+            --title "dsd $VERSION" --notes-file notes.md \
+            $([[ "$VERSION" == *-* ]] && echo --prerelease)

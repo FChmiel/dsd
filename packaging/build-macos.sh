@@ -6,6 +6,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export PATH="$HOME/.cargo/bin:$PATH"
+for var in APPLE_SIGNING_IDENTITY APPLE_API_KEY APPLE_API_ISSUER APPLE_API_KEY_PATH; do
+  [[ -n "${!var:-}" ]] || unset "$var"
+done
 
 echo "==> UI"
 (cd ui && npm ci --no-audit --no-fund >/dev/null && npm run build >/dev/null)

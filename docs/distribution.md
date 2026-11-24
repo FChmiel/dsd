@@ -1,68 +1,73 @@
-# Shipping dsd as a Mac app
+# Releasing dsd
 
-## What gets shipped
+Releases are cut by hand and built by CI. A tag builds everything into a **draft** GitHub Release, and nothing is public until you publish it. Publishing updates the Homebrew cask.
 
-`dsd.app` (Apple Silicon) is made of:
+## What a release contains
 
-- a **Tauri shell** (a native window using the system WebKit), plus
-- the **Python backend frozen with PyInstaller**, in `Contents/Resources/backend/dsd/`.
+| File | What it is |
+|---|---|
+| `dsd_<version>_aarch64.dmg` | The Mac app (Apple Silicon): a Tauri window plus the Python backend frozen with PyInstaller. Users don't need Python, uv or Node. |
+| `dsd-<version>-py3-none-any.whl` | The Python package with the built web UI: `uv tool install <wheel URL>` puts `dsd` on PATH on any OS. |
+| `dsd-<version>.tar.gz` | The source distribution. |
+| `SHA256SUMS` | Checksums of the above. |
 
-On launch the shell:
-1. starts the backend on a free localhost port,
-2. shows a splash screen until the backend responds,
-3. loads the UI.
-
-Quitting the app stops the backend.
-
-Users don't need Python, uv or Node. They do need **git** and **Claude Code** (installed and logged in).
+Users need **git** and, for the agent features, **Claude Code** (installed and logged in). On launch, the app starts the backend on a free localhost port, shows a splash screen until it responds, then loads the UI. Quitting the app stops the backend.
 
 | Piece | Where |
 |---|---|
-| Build everything locally | `packaging/build-macos.sh` → `app/src-tauri/target/release/bundle/dmg/dsd_<ver>_aarch64.dmg` |
-| Freeze spec | `packaging/dsd.spec` |
-| Desktop shell | `app/src-tauri/` (`src/main.rs`, `tauri.conf.json`) |
-| Homebrew cask template | `packaging/homebrew/Casks/dsd.rb` |
-| CI release | `.github/workflows/release.yml` (runs on a `v*` tag) |
+| Version and changelog helper | `scripts/release.py` |
+| Changelog | `CHANGELOG.md` |
+| CI on pull requests | `.github/workflows/ci.yml` |
+| Release build | `.github/workflows/release.yml` |
+| Homebrew cask update | `.github/workflows/homebrew.yml`, from the template `packaging/homebrew/Casks/dsd.rb` |
+| Mac app build | `packaging/build-macos.sh`, `packaging/dsd.spec`, `app/src-tauri/` |
 
-## How testers install it (no Apple account needed)
+## One-time setup
+
+1. **Create the tap repo:** an empty public repo `FChmiel/homebrew-dsd`. Homebrew maps `fchmiel/dsd` to it.
+2. **Create a fine-grained token** with *Contents: read and write* on `homebrew-dsd` only. Add it to this repo as the Actions secret `TAP_TOKEN`.
+   Without it, the homebrew workflow prints the filled-in cask in its log, for you to copy into the tap by hand.
+
+## Releasing a version
+
+1. **Prepare** on a branch from an up-to-date main:
+   ```sh
+   python scripts/release.py 0.2.0
+   ```
+   This sets the version in `src/dsd/__init__.py` (which the Python package reads), `app/src-tauri/tauri.conf.json`, `Cargo.toml` and `Cargo.lock`. It also moves `## Unreleased` in `CHANGELOG.md` to `## 0.2.0 - <date>`.
+2. **Write the notes** under the new changelog heading: what changed, for users, in a few bullets. They become the release notes.
+3. **Open a "Release 0.2.0" PR** and merge it once CI is green.
+4. **Optional dry run:** Actions → **release** → *Run workflow* on any branch builds the DMG and the wheel as downloadable artifacts, without releasing anything.
+5. **Tag main:**
+   ```sh
+   git checkout main && git pull
+   git tag v0.2.0 && git push origin v0.2.0
+   ```
+   The release workflow checks that every version matches the tag and that the changelog has notes. It then builds and smoke-tests the DMG and the wheel, and creates a **draft** release with the files, the notes, install instructions and checksums.
+6. **Check the draft:** download the DMG and open the app, then run `uv tool install` on the wheel and run `dsd ui`.
+7. **Publish** the draft on GitHub. The homebrew workflow fills in the cask's version and sha256 and pushes it to the tap.
+8. **Check the cask:** `brew update && brew upgrade --cask dsd` (or `brew install --cask fchmiel/dsd/dsd`).
+
+A tag with a suffix, like `v0.2.0-rc.1`, makes a prerelease, which doesn't update the cask.
+
+If something goes wrong after tagging, delete the draft and the tag (`git push --delete origin v0.2.0`), fix it on main, and tag again.
+
+## How users install it
 
 ```sh
-brew install --cask OWNER/dsd/dsd
+brew install --cask fchmiel/dsd/dsd
 ```
 
-This installs `dsd.app` into /Applications and links the bundled `dsd` command onto PATH. Claude Code needs that command for the project MCP server (`dsd mcp`).
+This installs `dsd.app` into /Applications and puts the bundled `dsd` command on PATH. Claude Code needs that command to start the MCP server (`dsd mcp`).
 
-The build isn't notarized yet, so the cask clears macOS's download quarantine flag after installing. Without that, Gatekeeper would refuse to open the app.
-
-To install from the DMG instead:
+The app isn't notarized yet, so the cask clears macOS's download quarantine flag after installing; without that, Gatekeeper would refuse to open it. To install from the DMG instead:
 1. Drag the app to Applications.
-2. Open it via right-click → **Open**. On macOS 15+, go to System Settings → Privacy & Security → **Open Anyway**.
+2. Open it with right-click → **Open**. On macOS 15 and later, go to System Settings → Privacy & Security → **Open Anyway**.
 3. Click **Install dsd command** in the app.
 
-How to use it:
-1. Open **dsd**.
-2. Click **Choose folder…** and pick a git repo. The app offers to start a dsd project for it (`dsd init`). Its docs, plans and runs are kept in `~/.dsd/projects/`, not in the repo.
-   Claude sessions you start in the app get dsd's tools and skills automatically. To use them in Claude Code outside the app, click **Connect Claude Code** on Home.
-3. Click **+ New session**. Claude Code starts in a fresh worktree, already wired to the project's plans, docs and runs.
-4. Track experiments from any terminal with `dsd exec -b <benchmark> -- python train.py`. Scripts don't need to import anything.
+## Signing and notarization (optional)
 
-## One-time setup to publish
-
-1. **Push this repo to GitHub**, e.g. `OWNER/dsd`. The cask URL points at its Releases.
-2. **Create the tap repo** `OWNER/homebrew-dsd` (empty, public). Homebrew maps `OWNER/dsd` to it.
-3. **Create a fine-grained token** with *Contents: read & write* on `homebrew-dsd`. Add it as the secret `TAP_TOKEN` on the main repo. The release workflow then updates the cask's version and sha256 on every release.
-4. Keep the versions in sync: `pyproject.toml`, `app/src-tauri/tauri.conf.json`, `app/src-tauri/Cargo.toml`.
-5. Release:
-   ```sh
-   git tag v0.1.0 && git push origin v0.1.0
-   ```
-   CI builds the DMG on an Apple Silicon runner, publishes the GitHub Release and bumps the cask.
-
-Without `TAP_TOKEN`, copy `packaging/homebrew/Casks/dsd.rb` into the tap repo by hand, replacing `OWNER/REPO`, `version` and `sha256`. CI prints the sha256 in the release notes.
-
-## Going public: signing and notarization
-
-You need an Apple Developer Program membership ($99/yr). Then:
+You need an Apple Developer Program membership ($99 a year). Then:
 
 1. Create a **Developer ID Application** certificate and export it as a `.p12`. Add these repo secrets:
    - `APPLE_CERTIFICATE`: the .p12, base64-encoded
@@ -74,11 +79,11 @@ You need an Apple Developer Program membership ($99/yr). Then:
    - `APPLE_API_KEY_P8`: the .p8 contents
 3. Tauri signs the app and notarizes the DMG during `tauri build`.
    - The PyInstaller backend needs signing too. Pass `--codesign-identity` / `codesign_identity` in `dsd.spec`, or sign `Contents/Resources/backend` before bundling, using the **hardened runtime**.
-   - It also needs these entitlements: `com.apple.security.cs.allow-unsigned-executable-memory` and `com.apple.security.cs.disable-library-validation`. Python loads native extensions.
+   - It also needs these entitlements, because Python loads native extensions: `com.apple.security.cs.allow-unsigned-executable-memory` and `com.apple.security.cs.disable-library-validation`.
 4. Delete the `postflight` quarantine block from the cask.
 
 ## Later
 
 - **Auto-update:** `tauri-plugin-updater` with a `latest.json` on GitHub Releases. It uses its own signing key pair, separate from Apple's.
 - **Intel Macs:** add a `macos-13` job. PyInstaller can't build a universal backend, so ship two DMGs.
-- **SDK on PyPI** (e.g. `dsd-sdk`), so `import dsd` works in users' own environments. `dsd exec` covers most cases without it.
+- **PyPI:** `dsd` is taken there, so the package needs another name (for example `dsd-workspace`). The command and `import dsd` can stay.
