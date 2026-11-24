@@ -68,7 +68,8 @@ jobs:
           uv venv /tmp/wheel-env
           uv pip install --python /tmp/wheel-env/bin/python pydist/*.whl
           /tmp/wheel-env/bin/dsd version
-          unzip -l pydist/*.whl | grep -q "dsd/web/dist/index.html"
+          unzip -l pydist/*.whl > wheel-files.txt
+          grep "dsd/web/dist/index.html" wheel-files.txt
           hdiutil attach -nobrowse -mountpoint /tmp/dsd-dmg app/src-tauri/target/release/bundle/dmg/*.dmg
           /tmp/dsd-dmg/dsd.app/Contents/Resources/backend/dsd/dsd version
           hdiutil detach /tmp/dsd-dmg
