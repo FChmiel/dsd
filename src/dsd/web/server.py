@@ -16,7 +16,7 @@ from fastapi import Body, FastAPI, HTTPException, Query, WebSocket, WebSocketDis
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .. import __version__, analytics, archive, plans, review, skills, worktrees
+from .. import __version__, analytics, archive, plans, review, skills, whiteboards, worktrees
 from .. import docs as docs_mod
 from ..init import init_project
 from ..project import Project, ProjectNotFound, all_projects, checkout_of, find_project
@@ -55,7 +55,7 @@ def create_app(current: Path | None = None) -> FastAPI:
         try:
             return fn(*a, **kw)
         except (plans.PlanError, docs_mod.DocsError, QueryError, ValueError, worktrees.WorktreeError,
-                skills.SkillError, archive.ArchiveError) as e:
+                skills.SkillError, archive.ArchiveError, whiteboards.WhiteboardError) as e:
             raise HTTPException(400, str(e))
         except (KeyError, FileNotFoundError) as e:
             raise HTTPException(404, str(e.args[0] if e.args else e))
@@ -350,6 +350,32 @@ def create_app(current: Path | None = None) -> FastAPI:
     @app.get("/api/p/{pid}/analytics")
     def analytics_list(pid: str):
         return analytics.list_posts(get_project(pid))
+
+    # ------------------------------------------------------------ whiteboards
+    @app.get("/api/p/{pid}/whiteboards")
+    def whiteboards_list(pid: str):
+        return whiteboards.list_boards(get_project(pid))
+
+    @app.post("/api/p/{pid}/whiteboards")
+    def whiteboard_new(pid: str, name: str = Body("Untitled", embed=True)):
+        return {"slug": guard(whiteboards.new_board, get_project(pid), name)}
+
+    @app.get("/api/p/{pid}/whiteboards/{slug}")
+    def whiteboard_get(pid: str, slug: str):
+        return guard(whiteboards.read_board, get_project(pid), slug)
+
+    @app.put("/api/p/{pid}/whiteboards/{slug}")
+    def whiteboard_save(pid: str, slug: str, scene: dict = Body(...), applied: list[str] = Body([])):
+        return guard(whiteboards.save_board, get_project(pid), slug, scene, applied)
+
+    @app.post("/api/p/{pid}/whiteboards/{slug}/rename")
+    def whiteboard_rename(pid: str, slug: str, name: str = Body(..., embed=True)):
+        return {"slug": guard(whiteboards.rename_board, get_project(pid), slug, name)}
+
+    @app.delete("/api/p/{pid}/whiteboards/{slug}")
+    def whiteboard_delete(pid: str, slug: str):
+        guard(whiteboards.delete_board, get_project(pid), slug)
+        return {"ok": True}
 
     # ------------------------------------------------------------ docs
     @app.get("/api/p/{pid}/docs")

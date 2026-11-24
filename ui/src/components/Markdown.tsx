@@ -64,6 +64,33 @@ function RunsEmbed({ pid, spec }: { pid: string; spec: string }) {
   );
 }
 
+function WhiteboardEmbed({ pid, path }: { pid: string; path: string }) {
+  const [svg, setSvg] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const slug = path.match(/^whiteboards\/([^/]+)\.excalidraw$/)?.[1];
+  useEffect(() => {
+    let alive = true;
+    Promise.all([fetch(`/api/p/${pid}/docs/raw/${path}`).then((r) => {
+      if (!r.ok) throw new Error(r.status === 404 ? "not found" : r.statusText);
+      return r.json();
+    }), import("./WhiteboardEditor")])
+      .then(([board, mod]) => mod.boardSvg(board, window.matchMedia("(prefers-color-scheme: dark)").matches))
+      .then((el) => { if (alive) setSvg(el.outerHTML); })
+      .catch((e) => { if (alive) setError(String(e?.message ?? e)); });
+    return () => { alive = false; };
+  }, [pid, path]);
+  return (
+    <div className="embed">
+      <div className="embed-head"><span>{path}</span><span className="spacer" />
+        {slug && <a {...linkProps(href(pid, "whiteboards", slug))}>edit ↗</a>}
+      </div>
+      {error ? <div className="muted" style={{ padding: 10 }}>Couldn't show this whiteboard: {error}</div>
+        : svg ? <div className="board-embed" dangerouslySetInnerHTML={{ __html: svg }} />
+        : <div className="muted" style={{ padding: 10 }}>Drawing whiteboard…</div>}
+    </div>
+  );
+}
+
 let diagramCount = 0;
 
 function MermaidBlock({ code }: { code: string }) {
@@ -122,6 +149,7 @@ export function Markdown({ pid, source, docPath }: { pid: string; source: string
             if (cls.includes("language-mermaid")) return <MermaidBlock code={text} />;
             if (cls.includes("language-dsd-embed")) {
               const t = text.trim();
+              if (!t.startsWith("run:") && t.endsWith(".excalidraw")) return <WhiteboardEmbed pid={pid} path={resolveDocPath(docPath, t)} />;
               return <FileEmbed pid={pid} path={t.startsWith("run:") ? t : resolveDocPath(docPath, t)} />;
             }
             return <pre {...rest}>{children}</pre>;
