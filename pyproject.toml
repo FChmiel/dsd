@@ -54,5 +54,8 @@ path = "src/dsd/__init__.py"
 packages = ["src/dsd"]
 artifacts = ["src/dsd/web/dist"]
 
+[tool.hatch.build.targets.sdist]
+artifacts = ["src/dsd/web/dist"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
