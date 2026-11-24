@@ -601,7 +601,7 @@ table.data.kv-table td.num { font-size: 12.5px; }
 .usage-tile b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
 .usage-tile span { color: var(--text-3); font-size: 12px; }
 .usage-label { color: var(--text-3); font-size: 12px; margin: 0 0 6px; }
-.heatmap rect:hover, .usage-bars rect:hover { stroke: var(--text); stroke-width: 1; }
+.heatmap rect:hover { stroke: var(--text); stroke-width: 1; }
 .hbar { display: grid; grid-template-columns: minmax(0, 150px) minmax(0, 1fr) 64px; gap: 8px; align-items: center; font-size: 12.5px; margin: 3px 0; }
 .hbar .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hbar .track { height: 8px; border-radius: 4px; background: var(--heat-0); overflow: hidden; }

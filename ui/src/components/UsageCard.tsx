@@ -95,37 +95,6 @@ function Heatmap({ u }: { u: Usage }) {
   );
 }
 
-function DailyBars({ u }: { u: Usage }) {
-  const days = useMemo(() => {
-    const end = parse(u.to);
-    return Array.from({ length: u.recent_days }, (_, i) => iso(new Date(end.getTime() - (u.recent_days - 1 - i) * DAY_MS)));
-  }, [u]);
-  const max = Math.max(1, ...days.map((d) => u.days[d]?.tokens ?? 0));
-  const W = 300, H = 70, gap = 2;
-  const bw = (W - gap * (days.length - 1)) / days.length;
-  return (
-    <svg className="usage-bars" viewBox={`0 0 ${W} ${H + 12}`} width="100%" role="img" aria-label={`Daily tokens, last ${u.recent_days} days`}>
-      <line x1={0} x2={W} y1={H + 0.5} y2={H + 0.5} stroke="var(--border)" />
-      {days.map((d, i) => {
-        const t = u.days[d]?.tokens ?? 0;
-        const h = t ? Math.max(2, (t / max) * H) : 0;
-        return (
-          <g key={d}>
-            <rect x={i * (bw + gap)} y={0} width={bw} height={H} fill="transparent">
-              <title>{`${label(d)}: ${fmtTokens(t)} tokens`}</title>
-            </rect>
-            {h > 0 && (
-              <path d={`M${i * (bw + gap)},${H} v${-(h - 2)} q0,-2 2,-2 h${bw - 4} q2,0 2,2 v${h - 2} z`} fill="var(--bar-1)" pointerEvents="none" />
-            )}
-          </g>
-        );
-      })}
-      <text x={0} y={H + 11} fontSize={8} fill="var(--text-3)">{label(days[0])}</text>
-      <text x={W} y={H + 11} fontSize={8} fill="var(--text-3)" textAnchor="end">today · peak {fmtTokens(max)}</text>
-    </svg>
-  );
-}
-
 function Bars({ rows }: { rows: { key: string; name: React.ReactNode; value: number; title: string }[] }) {
   const max = Math.max(1, ...rows.map((r) => r.value));
   return (
@@ -162,10 +131,8 @@ export function UsageCard() {
           <Heatmap u={u} />
         </div>
         <div>
-          <p className="usage-label">Tokens per day</p>
-          <DailyBars u={u} />
           {u.models.length > 0 && <>
-            <p className="usage-label" style={{ marginTop: 12 }}>By model</p>
+            <p className="usage-label">By model</p>
             <Bars rows={u.models.slice(0, 5).map((m) => ({
               key: m.model, name: modelName(m.model), value: m.tokens,
               title: `${m.model}: ${fmtTokens(m.tokens)} tokens (${share(m.tokens)}), ${m.messages.toLocaleString()} replies`,
