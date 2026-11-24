@@ -4,6 +4,7 @@ An agentic development platform for data scientists: project **plans and docs**,
 
 - **Plans:** markdown checklists with project-wide task ids (`T-12`). There's one central plan plus sub-plans, and edits only change the characters they need to.
 - **Docs:** decisions, notes and HTML reports live in the project's `docs/` folder. Docs support live `dsd-runs` tables and `![[report.html]]` embeds.
+- **Whiteboards:** Excalidraw boards per project for sketches and diagrams: boxes, diamonds, circles, arrows, lines, text and freehand, in any colour. Claude can draw on them too (`whiteboard_draw` takes a Mermaid flowchart or placed shapes), and `![[whiteboards/<name>.excalidraw]]` embeds a board in a doc.
 - **Experiments:** use `dsd.run(...)` or `dsd exec -- <cmd>`. Each run records params, metrics, info and HTML artifacts, along with its git state, command and dataset references. Benchmarks rank runs, and grouped leaderboards show mean ± std across seeds.
 - **Agents:** Claude sessions started from the dsd app get dsd's MCP tools and skills automatically. To use them in Claude Code elsewhere, click **Connect Claude Code** in the app (or run `dsd setup`): it registers the MCP server for your user, pointing at the dsd you installed, and installs the skills. The skills are:
   - `/dsd-plan` plans work with you: a step-by-step design doc, then tasks once you agree them.
@@ -64,7 +65,7 @@ dsd stores nothing in your repo: no `.dsd/` folder, no `CLAUDE.md` or `.gitignor
 ```
 ~/.dsd/projects/<id>/
   project.toml        # id, name, repo = "/abs/path/to/main/checkout", optional scope, [worktree], [[backup]]
-  docs/               # plans/ (main.md + sub-plans), decisions/, notes/, reports/, experiments/
+  docs/               # plans/ (main.md + sub-plans), decisions/, notes/, reports/, experiments/, whiteboards/
   runs/  index.db     # experiment run bundles and their SQLite index
   benchmarks.toml  review.json  worktrees.json
 ```
@@ -177,3 +178,7 @@ Release and signing guide: [docs/distribution.md](docs/distribution.md)
 - **SageMaker/S3 import:** the run-bundle format and the `backend` / `external_id` fields are in place for it.
 - **Chat transcript distillation from files** (`~/.claude/projects/*.jsonl`): today the `/dsd-distill` skill works on the live conversation instead.
 - **Marimo pane**, and git/S3 backup targets.
+
+## License
+
+MIT, see [LICENSE](LICENSE). The web UI bundles open-source packages and fonts under their own licences, listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

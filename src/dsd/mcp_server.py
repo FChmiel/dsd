@@ -15,6 +15,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from . import docs as docs_mod
 from . import plans
+from . import whiteboards as wb
 from .project import ProjectNotFound, current_project
 from .tracking.index import Index
 from .tracking.query import QueryError, compare, leaderboard, list_runs, load_bench_specs
@@ -39,11 +40,13 @@ in the project's data dir (~/.dsd/projects/<id>/, shown by project_overview). Ne
   worktree_rename as soon as you understand the task: 2 to 4 words saying what the work is ("rules-aware-target").
   Don't rename a worktree the user named.
 - Review comments the user left in the dsd app: review_comments, then review_resolve once addressed.
+- Diagrams: whiteboard_draw puts a Mermaid diagram or placed shapes on a project whiteboard the user can edit in
+  the app (Whiteboards page); whiteboard_read shows what is on a board. In docs, a ```mermaid block renders too.
 """
 
 server = MCPServer(name="dsd", instructions=INSTRUCTIONS)
 
-_EXPECTED = (docs_mod.DocsError, plans.PlanError, QueryError, ProjectNotFound, KeyError, ValueError, FileNotFoundError)
+_EXPECTED = (docs_mod.DocsError, plans.PlanError, wb.WhiteboardError, QueryError, ProjectNotFound, KeyError, ValueError, FileNotFoundError)
 
 
 def tool(fn):
@@ -183,6 +186,40 @@ def analytics_post(title: str, headline: str, body: str, metrics: dict | None = 
     p = _project()
     return "posted " + analytics.write_post(p, title, headline, body, metrics=metrics, task=task, plan=plan,
                                             benchmark=benchmark, runs=runs, date=date)
+
+
+@tool
+def whiteboard_list() -> list[dict]:
+    """List the project's whiteboards (Excalidraw drawings the user edits in the app)."""
+    return wb.list_boards(_project())
+
+
+@tool
+def whiteboard_read(board: str) -> dict:
+    """What is on a whiteboard, by name or slug: shapes with their text, the arrows between them, and loose text."""
+    p = _project()
+    slug = wb.find_board(p, board)
+    if not slug:
+        raise KeyError(f"No whiteboard '{board}'")
+    return wb.describe(p, slug)
+
+
+@tool
+def whiteboard_draw(board: str, mermaid: str | None = None, elements: list[dict] | None = None,
+                    replace: bool = False) -> dict:
+    """Draw on a whiteboard (created if no board has this name). Give one of:
+    mermaid: Mermaid source (flowchart, subgraphs, sequenceDiagram, classDiagram, stateDiagram, erDiagram; they
+      become editable shapes and arrows). Keep labels short (a few words, no <br/> paragraphs): put detail in a doc.
+    elements: Excalidraw element skeletons, e.g. {"type": "rectangle"|"diamond"|"ellipse", "id": "a", "x": 0, "y": 0,
+      "width": 180, "height": 70, "label": {"text": "Resolver"}, "strokeColor": "#1971c2", "backgroundColor": "#a5d8ff"},
+      {"type": "arrow", "x": 180, "y": 35, "start": {"id": "a"}, "end": {"id": "b"}, "label": {"text": "calls"}},
+      {"type": "text", "x": 0, "y": -40, "text": "Title", "fontSize": 28},
+      {"type": "line", "x": 0, "y": 0, "points": [[0, 0], [200, 0]]}. Leave ~80px between shapes.
+    New drawings go to the right of what is there; replace=True clears the board first.
+    The app adds the drawing when the board is next open in the Whiteboards page."""
+    r = wb.queue_drawing(_project(), board, mermaid=mermaid, elements=elements, replace=replace)
+    r["note"] = f"Queued; it appears on '{r['name']}' when the user opens Whiteboards in the dsd app."
+    return r
 
 
 @tool

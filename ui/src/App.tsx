@@ -14,6 +14,7 @@ import { Benchmarks } from "./views/Benchmarks";
 import { Changes } from "./views/Changes";
 import { Worktrees } from "./views/Worktrees";
 import { Analytics } from "./views/Analytics";
+import { Whiteboards } from "./views/Whiteboards";
 import { loadSessionDefault, type SessionTarget } from "./components/SessionLauncher";
 import { CliCard } from "./components/CliCard";
 import { HomePage } from "./views/Home";
@@ -26,6 +27,7 @@ const NAV = [
   { view: "runs", label: "Runs", icon: "flask" },
   { view: "benchmarks", label: "Benchmarks", icon: "trophy" },
   { view: "analytics", label: "Analytics", icon: "chart" },
+  { view: "whiteboards", label: "Whiteboards", icon: "board" },
   { view: "changes", label: "Changes", icon: "diff" },
   { view: "worktrees", label: "Worktrees", icon: "branch" },
 ] as const;
@@ -207,6 +209,7 @@ function Workspace({ project, projects }: { project: Project; projects: Project[
     case "changes": body = <Changes />; break;
     case "worktrees": body = <Worktrees />; break;
     case "analytics": body = <Analytics />; break;
+    case "whiteboards": body = <Whiteboards slug={route.rest[0] ?? null} />; break;
     default: body = <Overview data={ov} reload={overview.reload} />;
   }
 
