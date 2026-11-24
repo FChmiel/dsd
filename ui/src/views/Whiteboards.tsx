@@ -4,6 +4,7 @@ import { useApp } from "../context";
 import { href, linkProps, navigate } from "../router";
 import { Icon } from "../components/Icon";
 import type { Board } from "../components/WhiteboardEditor";
+import type { SessionTarget } from "../components/SessionLauncher";
 
 const WhiteboardEditor = lazy(() => import("../components/WhiteboardEditor"));
 
@@ -19,12 +20,30 @@ function ago(ts: number): string {
   return new Date(ts * 1000).toLocaleDateString(undefined, { day: "numeric", month: "short" });
 }
 
+function AskClaude({ prompt }: { prompt: string }) {
+  const { sendToAgent, focusWorktree } = useApp();
+  const [where, setWhere] = useState<"here" | "main" | "new">("here");
+  const target: SessionTarget = where === "new" ? { mode: "new" }
+    : where === "here" && focusWorktree ? { mode: "existing", worktree: focusWorktree } : { mode: "main" };
+  return (
+    <span className="ask-claude">
+      <button className="btn" onClick={() => sendToAgent(prompt, { session: target })}>Ask Claude to draw</button>
+      <select className="input" value={where} onChange={(e) => setWhere(e.target.value as typeof where)}
+        title="Which Claude session gets the request">
+        {focusWorktree && <option value="here">in ⎇ {focusWorktree}</option>}
+        <option value={focusWorktree ? "main" : "here"}>on main checkout</option>
+        <option value="new">in a new worktree</option>
+      </select>
+    </span>
+  );
+}
+
 export function Whiteboards({ slug }: { slug: string | null }) {
   return slug ? <BoardPage key={slug} slug={slug} /> : <BoardList />;
 }
 
 function BoardList() {
-  const { project, sendToAgent, toast } = useApp();
+  const { project, toast } = useApp();
   const boards = useApi<BoardInfo[]>(`/api/p/${project.id}/whiteboards`, { poll: 5000 });
   const list = boards.data ?? [];
 
@@ -45,7 +64,7 @@ function BoardList() {
         <h1>Whiteboards</h1>
         <span className="sub">sketches and diagrams for this project</span>
         <span className="spacer" />
-        <button className="btn" onClick={() => sendToAgent("Draw a diagram on a dsd whiteboard (whiteboard_draw) of ")}>Ask Claude to draw</button>
+        <AskClaude prompt="Draw a diagram on a dsd whiteboard (whiteboard_draw) of " />
         <button className="btn primary" onClick={create}>New whiteboard</button>
       </div>
       {boards.error && <div className="error-box">{boards.error}</div>}
@@ -103,10 +122,12 @@ function BoardPage({ slug }: { slug: string }) {
       <div className="board-bar">
         <a className="muted" {...linkProps(href(project.id, "whiteboards"))}>Whiteboards</a>
         <span className="muted">/</span>
-        <b>{name}</b>
+        <b className="board-title" title={name}>{name}</b>
         <span className="muted" style={{ fontSize: 12 }}>{savedAt ? "saved" : ""}</span>
         <span className="spacer" />
-        <span className="muted mono" style={{ fontSize: 11 }} title="Embed it in a doc">![[whiteboards/{slug}.excalidraw]]</span>
+        <button className="btn sm ghost" title={`Copy ![[whiteboards/${slug}.excalidraw]] to embed this board in a doc`}
+          onClick={() => navigator.clipboard.writeText(`![[whiteboards/${slug}.excalidraw]]`).then(() => toast("Copied: paste it into a doc"))}>Copy embed</button>
+        <AskClaude prompt={`On the dsd whiteboard "${name}" (whiteboard_read, then whiteboard_draw board="${name}"), draw `} />
         <button className="btn sm ghost" onClick={rename}>Rename</button>
         <button className="btn sm ghost" onClick={remove} title="Delete whiteboard"><Icon name="trash" /></button>
       </div>

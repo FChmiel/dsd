@@ -143,7 +143,7 @@ export default function WhiteboardEditor({ pid, slug, initial, onError, onSaved 
         done.push(p.id);
       }
       excal.updateScene({ elements: scene, captureUpdate: CaptureUpdateAction.IMMEDIATELY });
-      if (added.length) excal.scrollToContent(added, { fitToContent: true, animate: true });
+      if (added.length) requestAnimationFrame(() => excal.scrollToContent(added, { fitToContent: true }));
       await save(done);
     } finally {
       applying.current = false;

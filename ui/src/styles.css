@@ -615,7 +615,13 @@ table.data.kv-table td.num { font-size: 12.5px; }
 .board-page { flex-direction: column; }
 .board-bar { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-bottom: 1px solid var(--border); }
 .board-bar a { text-decoration: none; }
+.board-bar > * { flex-shrink: 0; white-space: nowrap; }
+.board-bar .board-title { flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .board-canvas { flex: 1; min-height: 0; position: relative; }
 .board-canvas .excalidraw { --zIndex-layerUI: 3; }
 .md .board-embed { padding: 12px; overflow: auto; }
 .md .board-embed svg { display: block; max-width: 100%; height: auto; margin: 0 auto; }
+.ask-claude { display: inline-flex; align-items: center; gap: 0; }
+.ask-claude .btn { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.ask-claude select.input { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: 0; width: auto; max-width: 190px; }
+.board-bar .ask-claude .btn, .board-bar .ask-claude select.input { padding-top: 3px; padding-bottom: 3px; font-size: 12px; }

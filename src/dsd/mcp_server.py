@@ -208,7 +208,8 @@ def whiteboard_read(board: str) -> dict:
 def whiteboard_draw(board: str, mermaid: str | None = None, elements: list[dict] | None = None,
                     replace: bool = False) -> dict:
     """Draw on a whiteboard (created if no board has this name). Give one of:
-    mermaid: Mermaid source (flowchart, sequenceDiagram, classDiagram; flowcharts become editable shapes and arrows).
+    mermaid: Mermaid source (flowchart, subgraphs, sequenceDiagram, classDiagram, stateDiagram, erDiagram; they
+      become editable shapes and arrows). Keep labels short (a few words, no <br/> paragraphs): put detail in a doc.
     elements: Excalidraw element skeletons, e.g. {"type": "rectangle"|"diamond"|"ellipse", "id": "a", "x": 0, "y": 0,
       "width": 180, "height": 70, "label": {"text": "Resolver"}, "strokeColor": "#1971c2", "backgroundColor": "#a5d8ff"},
       {"type": "arrow", "x": 180, "y": 35, "start": {"id": "a"}, "end": {"id": "b"}, "label": {"text": "calls"}},
