@@ -1,14 +1,14 @@
-# Homebrew cask for dsd. Lives in your tap repo: github.com/OWNER/homebrew-dsd -> Casks/dsd.rb
-# Testers install with:   brew install --cask OWNER/dsd/dsd
-# The release workflow rewrites `version` and `sha256` on each tagged release.
+# Homebrew cask for dsd. The homebrew workflow copies it to github.com/FChmiel/homebrew-dsd (Casks/dsd.rb),
+# filling in `version` and `sha256`, when a release is published.
+# Install:   brew install --cask fchmiel/dsd/dsd
 cask "dsd" do
   version "0.1.0"
   sha256 "REPLACE_WITH_DMG_SHA256"
 
-  url "https://github.com/OWNER/REPO/releases/download/v#{version}/dsd_#{version}_aarch64.dmg"
+  url "https://github.com/FChmiel/dsd/releases/download/v#{version}/dsd_#{version}_aarch64.dmg"
   name "dsd"
-  desc "Plans, docs, experiments and Claude Code sessions for data science"
-  homepage "https://github.com/OWNER/REPO"
+  desc "Workspace for agent-data science collaboration"
+  homepage "https://github.com/FChmiel/dsd"
 
   depends_on arch: :arm64
   depends_on macos: ">= :monterey"

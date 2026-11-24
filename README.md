@@ -116,9 +116,19 @@ Sessions started from the app get dsd's tools and skills automatically. To use t
 
 ## Install
 
-dsd is alpha software, developed and tested on macOS. Linux should work but is untested.
+dsd is alpha software, developed and tested on macOS. Linux should work but is untested. You need **git**, and for the agent features **[Claude Code](https://docs.claude.com/en/docs/claude-code)**, installed and logged in.
 
-You need **Python 3.11+**, **git**, **[uv](https://docs.astral.sh/uv/)** and **Node 18+** (to build the web UI). For the agent features you also need **[Claude Code](https://docs.claude.com/en/docs/claude-code)**, installed and logged in.
+**Mac app (Apple Silicon), with Homebrew:**
+
+```sh
+brew install --cask fchmiel/dsd/dsd
+```
+
+This installs `dsd.app` and the `dsd` command, with the backend bundled, so you don't need Python or Node. The app isn't notarized yet; the cask clears macOS's quarantine flag so it opens normally. You can also download the DMG from [Releases](https://github.com/FChmiel/dsd/releases).
+
+**Any OS, as a command-line tool:** install the wheel from a release with `uv tool install <wheel URL>`.
+
+**From source:** you need **Python 3.11+**, **[uv](https://docs.astral.sh/uv/)** and **Node 18+**.
 
 ```sh
 git clone https://github.com/FChmiel/dsd.git && cd dsd
@@ -126,7 +136,7 @@ git clone https://github.com/FChmiel/dsd.git && cd dsd
 uv tool install .                    # puts `dsd` on your PATH
 ```
 
-A packaged Mac app (a native window with the backend bundled, so you don't need Python or Node) is built by `packaging/build-macos.sh`. It will be published with the first releases; see [docs/distribution.md](docs/distribution.md).
+How releases are made: [docs/distribution.md](docs/distribution.md).
 
 ## Quick start
 
@@ -274,7 +284,7 @@ Issues and pull requests are welcome.
 
 ## Roadmap
 
-- Published releases: the Mac app via Homebrew and DMG, and the Python package.
+- Signed and notarized Mac builds, auto-update, and the Python package on PyPI.
 - Importing runs from SageMaker and S3 (the run format already has `backend` and `external_id` fields for it).
 - Git and S3 backup targets, alongside local snapshots.
 - Distilling past Claude transcripts into docs (today `/dsd-distill` works on the live conversation).
