@@ -1,6 +1,6 @@
 [package]
 name = "dsd-app"
-version = "0.1.0"
+version = "0.1.1"
 description = "dsd: plans, docs, experiments and Claude Code sessions for data science"
 edition = "2021"
 

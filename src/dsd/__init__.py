@@ -7,7 +7,7 @@
         r.html("report.html", html_string)
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 from .tracking import Run, active_run, dataset, finish, log  # noqa: E402
 from .tracking import start_run as run  # noqa: E402
