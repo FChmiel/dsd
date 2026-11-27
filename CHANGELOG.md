@@ -4,6 +4,10 @@ All notable changes to dsd. Versions follow [semantic versioning](https://semver
 
 ## Unreleased
 
+## 0.1.1 - 2026-11-27
+
+- **Mac app:** buttons that ask for a name or a confirmation now work. **New whiteboard**, renaming and deleting a whiteboard, **New project on this repo…** and renaming a worktree did nothing in the app, because its webview doesn't support the browser's built-in prompt and confirm boxes. They now open a dialog in the page.
+
 ## 0.1.0
 
 The first public alpha.

@@ -4,6 +4,7 @@ import { href, linkProps, navigate, useRoute } from "./router";
 import { Ctx, type AppCtx } from "./context";
 import { TerminalPane, type TermInfo } from "./components/TerminalPane";
 import { Icon } from "./components/Icon";
+import { askText } from "./components/Dialog";
 import { Overview } from "./views/Overview";
 import { Plans } from "./views/Plans";
 import { Docs } from "./views/Docs";
@@ -272,7 +273,7 @@ function Workspace({ project, projects }: { project: Project; projects: Project[
             terminalWhere={focusWorktree ?? "main checkout"}
             onClose={closeTerminal}
             onRenameWorktree={async (wt) => {
-              const name = window.prompt(`Rename worktree "${wt}" (its dsd/ branch is renamed too if it hasn't been pushed)`, wt)?.trim();
+              const name = (await askText(`Rename worktree "${wt}" (its dsd/ branch is renamed too if it hasn't been pushed)`, wt))?.trim();
               if (!name || name === wt) return;
               try {
                 await post(`/api/p/${project.id}/worktrees/${encodeURIComponent(wt)}/rename`, { name, rename_branch: true });
@@ -321,7 +322,7 @@ function ProjectSwitcher({ current, projects }: { current: Project; projects: Pr
           <div style={{ borderTop: "1px solid var(--border)", margin: "4px 0" }} />
           <button className="menu-item" onClick={async () => {
             setOpen(false);
-            const name = window.prompt(`Name of the new project on ${projectPath(current)}`)?.trim();
+            const name = (await askText(`Name of the new project on ${projectPath(current)}`))?.trim();
             if (!name) return;
             const p = await post<Project>("/api/projects", { path: current.repo, init: true, name, scope: current.scope });
             window.location.assign(href(p.id, "overview"));

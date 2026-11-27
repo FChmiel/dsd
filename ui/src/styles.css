@@ -441,6 +441,17 @@ table.diff tr.line:hover .add-comment { opacity: 1; }
   padding: 8px 14px; border-radius: 8px; box-shadow: var(--shadow); z-index: 100; font-size: 12.5px;
 }
 
+.dialog-backdrop {
+  position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); z-index: 1000;
+  display: flex; align-items: flex-start; justify-content: center; padding-top: 18vh;
+}
+.dialog {
+  width: min(440px, calc(100vw - 32px)); background: var(--panel); border: 1px solid var(--border);
+  border-radius: 10px; box-shadow: var(--shadow); padding: 16px; display: flex; flex-direction: column; gap: 12px;
+}
+.dialog-message { font-size: 13px; color: var(--text); line-height: 1.5; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
 .home { max-width: 640px; margin: 10vh auto; padding: 0 20px; }
 .home h1 { font-size: 26px; letter-spacing: -0.02em; }
 .home .card { margin-top: 18px; }

@@ -3,6 +3,7 @@ import { del, post, useApi } from "../api";
 import { useApp } from "../context";
 import { href, linkProps, navigate } from "../router";
 import { Icon } from "../components/Icon";
+import { askConfirm, askText } from "../components/Dialog";
 import type { Board } from "../components/WhiteboardEditor";
 import type { SessionTarget } from "../components/SessionLauncher";
 
@@ -48,7 +49,7 @@ function BoardList() {
   const list = boards.data ?? [];
 
   const create = async () => {
-    const name = window.prompt("Name the whiteboard", "Untitled");
+    const name = await askText("Name the whiteboard", "Untitled");
     if (name === null) return;
     try {
       const { slug } = await post<{ slug: string }>(`/api/p/${project.id}/whiteboards`, { name });
@@ -97,7 +98,7 @@ function BoardPage({ slug }: { slug: string }) {
   const name = board.data?.dsd?.name ?? slug;
 
   const rename = async () => {
-    const next = window.prompt("Rename whiteboard", name);
+    const next = await askText("Rename whiteboard", name);
     if (!next || next === name) return;
     try {
       const r = await post<{ slug: string }>(`${url}/rename`, { name: next });
@@ -108,7 +109,7 @@ function BoardPage({ slug }: { slug: string }) {
   };
 
   const remove = async () => {
-    if (!window.confirm(`Delete the whiteboard "${name}"?`)) return;
+    if (!(await askConfirm(`Delete the whiteboard "${name}"?`, "Delete", true))) return;
     try {
       await del(url);
       navigate(href(project.id, "whiteboards"));
